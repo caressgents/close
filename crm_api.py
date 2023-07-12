@@ -1,7 +1,9 @@
 import requests
+import logging
+from config import CRM_API_KEY, CRM_API_URL, CRM_PHONE_NUMBER
 
-CRM_API_KEY = "CRM_API_GOES_HERE"
-CRM_API_URL = "https://api.close.com/api/v1/"
+# Set up logging
+logger = logging.getLogger(__name__)
 
 def get_unread_messages():
     url = f"{CRM_API_URL}/activity/sms/"
@@ -10,10 +12,12 @@ def get_unread_messages():
         "Authorization": f"Bearer {CRM_API_KEY}",
     }
 
-    response = requests.get(url, headers=headers)
-
-    if response.status_code != 200:
-        raise Exception(f"Failed to fetch messages: {response.text}")
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        logger.error(f"Failed to fetch messages: {e}")
+        return []
 
     return response.json()
 
@@ -24,10 +28,12 @@ def get_lead_data(lead_id):
         "Authorization": f"Bearer {CRM_API_KEY}",
     }
 
-    response = requests.get(url, headers=headers)
-
-    if response.status_code != 200:
-        raise Exception(f"Failed to fetch lead data: {response.text}")
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        logger.error(f"Failed to fetch lead data: {e}")
+        return None
 
     return response.json()
 
@@ -43,12 +49,15 @@ def send_message(lead_id, message):
         "lead_id": lead_id,
         "text": message,
         "status": "outbox",  # to send the SMS immediately
-        "local_phone": "INPUT_CRM_SMS_#_HERE"  # the CRM's built-in number
+        "local_phone": CRM_PHONE_NUMBER  # the CRM's built-in number
     }
 
-    response = requests.post(url, headers=headers, json=data)
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        logger.error(f"Failed to send message: {e}")
+        return False
 
-    if response.status_code != 201:
-        raise Exception(f"Failed to send message: {response.text}")
+    return True
 
-    return response.json()

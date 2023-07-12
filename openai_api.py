@@ -1,8 +1,8 @@
 import openai
-import os
+from config import OPENAI_API_KEY
 
 def generate_response(prompt):
-    openai.api_key = "GPT4_API_KEY_HERE"
+    openai.api_key = OPENAI_API_KEY
 
     response = openai.ChatCompletion.create(
         model="gpt-4",
@@ -13,5 +13,3 @@ def generate_response(prompt):
     )
     
     return response['choices'][0]['message']['content']
-
-response = generate_response("What are pricing options for your dump trailers? Please include all specs and photos can be found on our website www.topshelftrailers.com")

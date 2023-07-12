@@ -1,5 +1,9 @@
 import crm_api
 import openai_api
+import logging
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 # Define your templates here. Replace with your actual templates.
 templates = {
@@ -40,11 +44,15 @@ def find_template(lead_data, templates):
 
 def respond_to_unread_messages():
     # Retrieve unread messages
-    unread_messages = crm_api.get_unread_messages("api_goes_here_crm")
+    unread_messages = crm_api.get_unread_messages()
 
     for msg in unread_messages:
         # Retrieve the lead's data
-        lead_data = crm_api.get_lead_data("api_goes_here_crm", msg["lead_id"])
+        lead_data = crm_api.get_lead_data(msg["lead_id"])
+
+        if lead_data is None:
+            logger.error(f"Failed to fetch lead data for lead {msg['lead_id']}")
+            continue
 
         # Analyze the message and lead's data to find a matching template
         template = find_template(lead_data, templates)
@@ -55,10 +63,8 @@ def respond_to_unread_messages():
         else:
             # If no template is found, generate a response
             prompt = msg["content"]  # use the message content as the prompt
-            response = openai_api.generate_response("gpt4_api_goes_here", prompt)
+            response = openai_api.generate_response(prompt)
 
         # Send the response
-        crm_api.send_message("api_goes_here_crm", msg["lead_id"], response)
-
-# Run the function
-# respond_to_unread_messages()  # commented out to prevent it from running automatically
+        if not crm_api.send_message(msg["lead_id"], response):
+            logger.error(f"Failed to send message to lead {msg['lead_id']}")

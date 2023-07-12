@@ -45,7 +45,9 @@ def find_template(lead_data, templates):
 def respond_to_unread_messages():
     # Retrieve unread messages
     unread_messages = crm_api.get_unread_messages()
+    logger.info(f"Retrieved {len(unread_messages)} unread messages.")
 
+    successful_messages = 0
     for msg in unread_messages:
         # Retrieve the lead's data
         lead_data = crm_api.get_lead_data(msg["lead_id"])
@@ -60,11 +62,18 @@ def respond_to_unread_messages():
         if template is not None:
             # If a template is found, use the template response
             response = template["response"]
+            logger.info(f"Using template response for lead {msg['lead_id']}.")
         else:
             # If no template is found, generate a response
             prompt = msg["content"]  # use the message content as the prompt
             response = openai_api.generate_response(prompt)
+            logger.info(f"Generated AI response for lead {msg['lead_id']}.")
 
         # Send the response
         if not crm_api.send_message(msg["lead_id"], response):
             logger.error(f"Failed to send message to lead {msg['lead_id']}")
+        else:
+            successful_messages += 1
+            logger.info(f"Successfully sent message to lead {msg['lead_id']}.")
+
+    logger.info(f"Sent {successful_messages} successful messages out of {len(unread_messages)} total messages.")

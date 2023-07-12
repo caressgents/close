@@ -36,7 +36,7 @@ class MyThread(threading.Thread):
             except Exception as e:
                 logger.error("Error in main function", exc_info=True)
 
-@app.route('/start')
+@app.route('/start', methods=['POST'])
 def start_script():
     global thread
     if thread is not None and thread.is_alive():
@@ -45,7 +45,7 @@ def start_script():
     thread.start()
     return "Script started"
 
-@app.route('/stop')
+@app.route('/stop', methods=['POST'])
 def stop_script():
     global thread
     if thread is not None and thread.is_alive():
@@ -54,7 +54,7 @@ def stop_script():
         return "Script stopped"
     return "Script not running"
 
-@app.route('/logs')
+@app.route('/logs', methods=['POST'])
 def view_logs():
     with open('app.log', 'r') as log_file:
         content = log_file.read()

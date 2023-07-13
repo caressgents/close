@@ -1,5 +1,5 @@
 import logging
-from bot_main import respond_to_unread_messages
+from bot_main import run_bot
 from flask import Flask, render_template, request
 import threading
 import atexit
@@ -32,7 +32,7 @@ class MyThread(threading.Thread):
         while not self._stop_event.is_set():
             try:
                 # Call your main function here
-                respond_to_unread_messages()
+                run_bot()
             except Exception as e:
                 logger.error("Error in main function", exc_info=True)
 
@@ -64,4 +64,3 @@ def view_logs():
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000, debug=True)
-

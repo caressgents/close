@@ -1,79 +1,83 @@
-import crm_api
-import openai_api
-import logging
+import time
+from threading import Thread
+from flask import Flask, jsonify
+from config import CRM_PHONE_NUMBER
+from crm_api import CRMAPI
+from openai_api import generate_response
+import re
 
-# Set up logging
-logger = logging.getLogger(__name__)
-
-# Define your templates here. Replace with your actual templates.
-templates = {
-    "6x12x2": {"triggers": ["6x12x2", "compact", "small dump trailer"], "response": "..."},
-    "6x12x3": {"triggers": ["6x12x3", "medium", "medium dump trailer"], "response": "..."},
-    "6x12x4": {"triggers": ["6x12x4", "large", "large dump trailer"], "response": "..."},
-    "7x14x2": {"triggers": ["7x14x2", "balance", "balance of size and capacity"], "response": "..."},
-    "7x14x3": {"triggers": ["7x14x3", "extra capacity", "extra load"], "response": "..."},
-    "7x14x4": {"triggers": ["7x14x4", "extra capacity", "extra load"], "response": "..."},
-    "7x16x2": {"triggers": ["7x16x2", "large", "demanding hauls"], "response": "..."},
-    "7x16x3": {"triggers": ["7x16x3", "large", "demanding hauls"], "response": "..."},
-    "7x16x4": {"triggers": ["7x16x4", "large", "demanding hauls"], "response": "..."},
-    "7x18 and 7x20 bumper pull": {"triggers": ["7x18", "7x20", "large dump trailer"], "response": "..."},
-    "Check out our reviews": {"triggers": ["reviews", "quality"], "response": "..."},
-    "Financing": {"triggers": ["financing", "payment"], "response": "..."},
-    "Gooseneck 7x14x2": {"triggers": ["gooseneck", "7x14x2"], "response": "..."},
-    "Gooseneck 7x14x3": {"triggers": ["gooseneck", "7x14x3"], "response": "..."},
-    "Gooseneck 7x14x4": {"triggers": ["gooseneck", "7x14x4"], "response": "..."},
-    "Gooseneck 7x16x2": {"triggers": ["gooseneck", "7x16x2"], "response": "..."},
-    "Gooseneck 7x16x3": {"triggers": ["gooseneck", "7x16x3"], "response": "..."},
-    "Gooseneck 7x16x4": {"triggers": ["gooseneck", "7x16x4"], "response": "..."},
-    "Gooseneck 8x20x4": {"triggers": ["gooseneck", "8x20x4"], "response": "..."},
-    "INTERESTED IN GETTING AN ORDER STARTED": {"triggers": ["order", "start", "purchase"], "response": "..."},
-    "Our address": {"triggers": ["address", "location"], "response": "..."},
-    "Sorry for the delay": {"triggers": ["late", "delay"], "response": "..."},
-    "WEBSITE SPECS - 7x14": {"triggers": ["7x14", "specs", "details"], "response": "..."},
-    "WEBSITE SPECS - 7x16": {"triggers": ["7x16", "specs", "details"], "response": "..."},
-    "WEBSITE SPECS - 8x20": {"triggers": ["8x20", "specs", "details"], "response": "..."},
-}
+app = Flask(__name__)
+bot_thread = None
+crm_api = CRMAPI()
 
 def find_template(lead_data, templates):
-    # This function should analyze the lead data and find a matching template.
-    # For now, it just returns the first template that matches the last message.
-    for template_name, template in templates.items():
-        if any(trigger in lead_data["last_message"].lower() for trigger in template["triggers"]):
+    # Extract the necessary fields from the lead data
+    hitch_type = lead_data['custom_fields'].get('preferred_hitch_type', '')
+    size = lead_data['custom_fields'].get('what_size_dump_trailer_do_you_need?', '')
+    
+    # Extract the wall size from the lead's last message using a regular expression
+    wall_size_search = re.search(r'(\d+)', lead_data['last_received_message'].get('text', ''))
+    wall_size = wall_size_search.group(1) if wall_size_search else ''
+
+    # Construct the template title based on the lead data
+    template_title = ''
+    if hitch_type.lower() == 'gooseneck':
+        template_title += 'Gooseneck '
+    template_title += f'{size}x{wall_size}'
+
+    # Find the template with the matching title
+    for template in templates:
+        if template['title'] == template_title:
             return template
+
+    # If no matching template is found, return None
     return None
 
-def respond_to_unread_messages():
-    # Retrieve unread messages
-    unread_messages = crm_api.get_unread_messages()
-    logger.info(f"Retrieved {len(unread_messages)} unread messages.")
+def run_bot():
+    while True:
+        # Get unread messages
+        tasks = crm_api.get_unread_messages()
+        for task in tasks:
+            lead_id = task['lead_id']
+            message_id = task['id']
 
-    successful_messages = 0
-    for msg in unread_messages:
-        # Retrieve the lead's data
-        lead_data = crm_api.get_lead_data(msg["lead_id"])
+            # Get lead data
+            lead_data = crm_api.get_lead_data(lead_id)
+            if not lead_data:
+                continue
 
-        if lead_data is None:
-            logger.error(f"Failed to fetch lead data for lead {msg['lead_id']}")
-            continue
+            # Generate a response using the OpenAI API
+            response_text = generate_response(lead_data['last_received_message']['text'])
 
-        # Analyze the message and lead's data to find a matching template
-        template = find_template(lead_data, templates)
+            # Find a matching template
+            template = find_template(lead_data, templates)
+            if template:
+                # If a matching template is found, use it to send a response
+                crm_api.send_message(lead_id, template['text'], message_id)
+            else:
+                # If no matching template is found, mark the lead for human intervention
+                crm_api.update_lead_status(lead_id, 'Human Intervention')
 
-        if template is not None:
-            # If a template is found, use the template response
-            response = template["response"]
-            logger.info(f"Using template response for lead {msg['lead_id']}.")
-        else:
-            # If no template is found, generate a response
-            prompt = msg["content"]  # use the message content as the prompt
-            response = openai_api.generate_response(prompt)
-            logger.info(f"Generated AI response for lead {msg['lead_id']}.")
+            # Mark the task as complete
+            crm_api.mark_task_as_complete(task['id'])
 
-        # Send the response
-        if not crm_api.send_message(msg["lead_id"], response, msg["id"]):
-            logger.error(f"Failed to send message to lead {msg['lead_id']}")
-        else:
-            successful_messages += 1
-            logger.info(f"Successfully sent message to lead {msg['lead_id']}.")
+        time.sleep(5)
 
-    logger.info(f"Sent {successful_messages} successful messages out of {len(unread_messages)} total messages.")
+@app.route('/start', methods=['POST'])
+def start_bot():
+    global bot_thread
+    if bot_thread is None:
+        bot_thread = Thread(target=run_bot)
+        bot_thread.start()
+    return jsonify(success=True)
+
+@app.route('/stop', methods=['POST'])
+def stop_bot():
+    global bot_thread
+    if bot_thread is not None:
+        bot_thread.join()
+        bot_thread = None
+    return jsonify(success=True)
+
+if __name__ == "__main__":
+    app.run(port=5000, debug=False)

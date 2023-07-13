@@ -9,16 +9,25 @@ logger = logging.getLogger(__name__)
 auth = HTTPBasicAuth(CRM_API_KEY, '')
 
 def get_unread_messages():
-    url = f"{CRM_API_URL}/activity/sms/"
+    url = f"{CRM_API_URL}/activity/sms/unread"
 
     try:
         response = requests.get(url, auth=auth)
         response.raise_for_status()
     except requests.RequestException as e:
-        logger.error(f"Failed to fetch messages: {e}")
+        logger.error(f"Failed to get unread messages: {e}")
         return []
 
-    return response.json()
+    # Ensure the response is a list of dictionaries
+    try:
+        messages = response.json()
+        if isinstance(messages, list) and all(isinstance(msg, dict) for msg in messages):
+            return messages
+    except ValueError:
+        pass
+
+    logger.error(f"Unexpected response format from get_unread_messages: {response.text}")
+    return []
 
 def get_lead_data(lead_id):
     url = f"{CRM_API_URL}/lead/{lead_id}"
@@ -32,7 +41,7 @@ def get_lead_data(lead_id):
 
     return response.json()
 
-def send_message(lead_id, message):
+def send_message(lead_id, message, message_id):
     url = f"{CRM_API_URL}/activity/sms/"
 
     headers = {
@@ -43,7 +52,8 @@ def send_message(lead_id, message):
         "lead_id": lead_id,
         "text": message,
         "status": "outbox",  # to send the SMS immediately
-        "local_phone": CRM_PHONE_NUMBER  # the CRM's built-in number
+        "local_phone": CRM_PHONE_NUMBER,  # the CRM's built-in number
+        "message_id": message_id  # the ID of the message being responded to
     }
 
     try:
@@ -54,4 +64,3 @@ def send_message(lead_id, message):
         return False
 
     return True
-

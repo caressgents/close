@@ -70,7 +70,7 @@ def respond_to_unread_messages():
             logger.info(f"Generated AI response for lead {msg['lead_id']}.")
 
         # Send the response
-        if not crm_api.send_message(msg["lead_id"], response):
+        if not crm_api.send_message(msg["lead_id"], response, msg["id"]):
             logger.error(f"Failed to send message to lead {msg['lead_id']}")
         else:
             successful_messages += 1

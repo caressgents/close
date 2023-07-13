@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 auth = HTTPBasicAuth(CRM_API_KEY, '')
 
 def get_unread_messages():
-    url = f"{CRM_API_URL}/activity/sms/unread"
+    url = f"{CRM_API_URL}/task/?_type=incoming_sms&is_complete=false"
 
     try:
         response = requests.get(url, auth=auth)
@@ -28,6 +28,8 @@ def get_unread_messages():
 
     logger.error(f"Unexpected response format from get_unread_messages: {response.text}")
     return []
+
+
 
 def get_lead_data(lead_id):
     url = f"{CRM_API_URL}/lead/{lead_id}"
@@ -61,6 +63,22 @@ def send_message(lead_id, message, message_id):
         response.raise_for_status()
     except requests.RequestException as e:
         logger.error(f"Failed to send message: {e}")
+        return False
+
+    return True
+
+def mark_task_as_complete(task_id):
+    url = f"{CRM_API_URL}/task/{task_id}"
+
+    data = {
+        "is_complete": True
+    }
+
+    try:
+        response = requests.put(url, auth=auth, data=json.dumps(data))
+        response.raise_for_status()
+    except requests.RequestException as e:
+        logger.error(f"Failed to mark task as complete: {e}")
         return False
 
     return True

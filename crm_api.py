@@ -10,7 +10,9 @@ class CRMAPI:
         self.auth = HTTPBasicAuth(CRM_API_KEY, ' ')
 
     def get_unprocessed_incoming_sms_tasks(self):
-        url = f'{CRM_API_URL}/task?_type=incoming_sms&is_complete=false'
+        # Set the date to filter tasks created after June 1st, 2023
+        filter_date = '2023-06-01'
+        url = f'{CRM_API_URL}/task?_type=incoming_sms&is_complete=false&date_created__gt={filter_date}'
         response = requests.get(url, auth=self.auth)
         if response.status_code == 200:
             return response.json()['data']

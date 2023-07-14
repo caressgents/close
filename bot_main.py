@@ -1,4 +1,3 @@
-# 'bot_main.py'
 import time
 from threading import Thread
 from flask import Flask, jsonify
@@ -38,6 +37,7 @@ def select_template(lead_data, templates):
     return None
 
 def run_bot():
+    print("Running the bot...")
     logging.basicConfig(filename='app.log', level=logging.INFO)
 
     while True:
@@ -61,14 +61,16 @@ def run_bot():
                             message = template['text'].replace('{{ wall_height }}', wall_height)
                             crm_api.send_message(lead_id, message, task['id'])
                             sent_counter += 1
+                            print(f"Successfully sent SMS template for lead {lead_id}")
                         else:
                             crm_api.update_lead_status(lead_id, 'Human Intervention')
                             human_intervention_counter += 1
+                            print(f"Updated status to 'Human Intervention' for lead {lead_id}")
                     crm_api.mark_task_as_complete(task['id'])
                 except Exception as e:
                     logging.exception(f"Failed to process lead {lead_id}")
                     failed_counter += 1
-            logging.info(f"Sent {sent_counter} messages, marked {human_intervention_counter} leads for human intervention, failed to process {failed_counter} leads")
+            print(f"Sent {sent_counter} messages, marked {human_intervention_counter} leads for human intervention, failed to process {failed_counter} leads")
         except Exception as e:
             logging.exception("Failed to fetch tasks")
         time.sleep(5)

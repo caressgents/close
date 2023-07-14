@@ -9,22 +9,24 @@ class CRMAPI:
     def __init__(self):
         self.auth = HTTPBasicAuth(CRM_API_KEY, ' ')
 
-    def get_unread_messages(self):
+    def get_unprocessed_incoming_sms_tasks(self):
         url = f'{CRM_API_URL}/task?_type=incoming_sms&is_complete=false'
         response = requests.get(url, auth=self.auth)
         if response.status_code == 200:
             return response.json()['data']
         else:
-            logging.error(f"Failed to get unread messages: {response.text}")
+            logging.error(f"Failed to get unprocessed incoming SMS tasks: {response.text}")
             return []
 
     def get_lead_data(self, lead_id):
         url = f'{CRM_API_URL}/lead/{lead_id}'
         response = requests.get(url, auth=self.auth)
         if response.status_code == 200:
-            return response.json()
+            lead_data = response.json()
+            logging.info(f"Received lead data for lead_id {lead_id}: {lead_data}")
+            return lead_data
         else:
-            logging.error(f"Failed to get lead data: {response.text}")
+            logging.error(f"Failed to get lead data for lead_id {lead_id}: {response.text}")
             return None
 
     def send_message(self, lead_id, message, message_id):

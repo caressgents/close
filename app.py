@@ -54,7 +54,7 @@ def stop_script():
         return "Script stopped"
     return "Script not running"
 
-@app.route('/logs', methods=['POST'])
+@app.route('/logs', methods=['GET', 'POST'])  # Updated this line
 def view_logs():
     with open('app.log', 'r') as log_file:
         content = log_file.read()

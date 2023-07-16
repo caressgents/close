@@ -6,10 +6,15 @@ from crm_api import CRMAPI
 from openai_api import generate_response
 import re
 import logging
+import os
+import openai
 
 app = Flask(__name__)
 bot_thread = None
 crm_api = CRMAPI()
+
+# Initialize OpenAI with your API key
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def extract_wall_heights(text):
     wall_heights = re.findall(r'\b[234]\b', text)
@@ -48,6 +53,11 @@ def select_template(lead_data, templates, wall_height):
 
     print(f"No template found for title: {template_title}")
     return None
+
+def analyze_data_with_ai(data):
+    # Use OpenAI's GPT-4 model to analyze the data
+    response = openai.Completion.create(engine="text-davinci-004", prompt=data, max_tokens=60)
+    return response.choices[0].text.strip()
 
 def run_bot():
     print("Running the bot...")

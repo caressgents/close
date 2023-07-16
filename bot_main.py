@@ -11,11 +11,11 @@ app = Flask(__name__)
 bot_thread = None
 crm_api = CRMAPI()
 
-def extract_wall_heights(sms_text):
-    """Extract wall height(s) from sms text using regular expression."""
-    # This regular expression matches any number followed by an optional '
-    matches = re.findall(r"(\d+)'?", sms_text)
-    return [match + "'" for match in matches]
+def extract_wall_heights(text):
+    wall_heights = re.findall(r'\b[234]\b', text)
+    if len(wall_heights) > 1:
+        wall_heights = sorted(wall_heights, key=lambda x: text.index(x))
+    return wall_heights
 
 def select_template(lead_data, templates, wall_height):
     if templates is None or len(templates) == 0:
@@ -49,10 +49,12 @@ def select_template(lead_data, templates, wall_height):
     print(f"No template found for title: {template_title}")
     return None
 
-
 def run_bot():
     print("Running the bot...")
     logging.basicConfig(filename='app.log', level=logging.INFO)
+
+    # Define the specific opportunity statuses we are interested in
+    specific_statuses = ['stat_GKAEbEJMZeyQlU7IYFOpd6PorjXupqmcNmmSzQBbcVJ', 'stat_6cqDnnaff2GYLV52VABicFqCV6cat7pyJn7wCJALGWz']
 
     while True:
         try:
@@ -68,15 +70,20 @@ def run_bot():
                     if lead_data is None:
                         logging.error(f"Failed to get lead data for lead {lead_id}")
                         continue
+
+                    # Check if the lead's status is one of the specific statuses
+                    if lead_data['status_id'] not in specific_statuses:
+                        continue
+
                     lead_data['notes'] = crm_api.get_lead_notes(lead_id)
                     incoming_sms = crm_api.get_latest_incoming_sms(lead_id)
-                    if incoming_sms is not None:
+                    outgoing_sms = crm_api.get_latest_outgoing_sms(lead_id)
+                    if incoming_sms is not None and (outgoing_sms is None or incoming_sms["date_created"] > outgoing_sms["date_created"]):
                         wall_heights = extract_wall_heights(incoming_sms['text'])
                         if len(wall_heights) > 1:
-                            crm_api.update_lead_status(lead_id, 'stat_X')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
+                            crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
                             human_intervention_counter += 1
                             print(f"Updated status to 'Human Intervention' for lead {lead_id} due to multiple wall heights")
-                            crm_api.mark_task_as_complete(task['id'])
                         elif len(wall_heights) == 1:
                             template = select_template(lead_data, templates, wall_heights[0])
                             if template:
@@ -84,12 +91,14 @@ def run_bot():
                                 if crm_api.send_message(lead_id, message, task['id'], template['id']):
                                     sent_counter += 1
                                     print(f"Successfully sent SMS template for lead {lead_id}")
-                                    crm_api.mark_task_as_complete(task['id'])
                                 else:
-                                    crm_api.update_lead_status(lead_id, 'stat_X')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
+                                    crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
                                     human_intervention_counter += 1
                                     print(f"Updated status to 'Human Intervention' for lead {lead_id}")
-                                    crm_api.mark_task_as_complete(task['id'])
+                            else:
+                                crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
+                                human_intervention_counter += 1
+                                print(f"Updated status to 'Human Intervention' for lead {lead_id} due to no matching template")
                         else:
                             logging.error(f"No valid wall height found in SMS for lead {lead_id}")
                     else:
@@ -101,6 +110,7 @@ def run_bot():
         except Exception as e:
             logging.exception("Failed to fetch tasks")
         time.sleep(5)
+
 
 
 @app.route('/start', methods=['POST'])

@@ -64,6 +64,22 @@ class CRMAPI:
             logging.exception(f"Failed to get latest incoming SMS for lead_id {lead_id}")
             return None
 
+    def get_latest_outgoing_sms(self, lead_id):
+        try:
+            url = f"{self.base_url}/activity/sms/?lead_id={lead_id}"
+            response = requests.get(url, auth=self.auth)
+            if response.status_code == 200:
+                activities = response.json()["data"]
+                outgoing_sms = [sms for sms in activities if sms["direction"] == "outbound"]
+                if outgoing_sms:
+                    latest_sms = max(outgoing_sms, key=lambda sms: sms["date_created"])
+                    return latest_sms
+            else:
+                logging.error(f"Failed to get latest outgoing SMS for lead_id {lead_id}: {response.status_code} {response.text}")
+                return None
+        except Exception as e:
+            logging.exception(f"Failed to get latest outgoing SMS for lead_id {lead_id}")
+            return None
     def send_message(self, lead_id, message, task_id, template_id):
         url = f'{self.base_url}/activity/sms'
         data = {

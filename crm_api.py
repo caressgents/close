@@ -16,64 +16,19 @@ class CRMAPI:
 
     def get_unprocessed_incoming_sms_tasks(self):
         filter_date = '2023-06-01'
-        url = f'{self.base_url}/api/v1/data/search/'
+        url = f'{self.base_url}/task/'
         query = {
-            "query": {
-                "type": "and",
-                "queries": [
-                    {
-                        "type": "object_type",
-                        "object_type": "task"
-                    },
-                    {
-                        "type": "field_condition",
-                        "field": {
-                            "type": "regular_field",
-                            "object_type": "task",
-                            "field_name": "_type"
-                        },
-                        "condition": {
-                            "type": "text",
-                            "mode": "full_words",
-                            "value": "incoming_sms"
-                        }
-                    },
-                    {
-                        "type": "field_condition",
-                        "field": {
-                            "type": "regular_field",
-                            "object_type": "task",
-                            "field_name": "is_complete"
-                        },
-                        "condition": {
-                            "type": "boolean",
-                            "value": False
-                        }
-                    },
-                    {
-                        "type": "field_condition",
-                        "field": {
-                            "type": "regular_field",
-                            "object_type": "task",
-                            "field_name": "date_created"
-                        },
-                        "condition": {
-                            "type": "date_range",
-                            "gt": filter_date
-                        }
-                    }
-                ]
-            }
+            'is_complete': False,
+            'date_created__gt': filter_date,
+            '_type': 'incoming_sms'
         }
-        response = requests.post(url, json=query, auth=self.auth)
+        response = requests.get(url, params=query, auth=self.auth)
         self.log_response(response)
         if response.status_code == 200:
             return response.json()['data']
         else:
             logging.error(f"Failed to get unprocessed incoming SMS tasks: {response.text}")
             return []
-
-    # Rest of the methods remains the same...
 
 
     def get_lead_data(self, lead_id):

@@ -15,50 +15,53 @@ crm_api = CRMAPI()
 # Initialize OpenAI with your API key
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-def extract_wall_heights(text):
-    wall_heights = re.findall(r'\b[234]\b', text)
-    if len(wall_heights) > 1:
-        wall_heights = sorted(wall_heights, key=lambda x: text.index(x))
-    return wall_heights
+def get_wall_height(sms_text):
+    logging.info(f"Analyzing SMS text for wall height: {sms_text}")  # Add this line
+    prompt = f"The following SMS text contains a mention of the wall height of a trailer: \"{sms_text}\". What is the wall height?"
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt},
+        ]
+    )
+    wall_height = response['choices'][0]['message']['content'].strip()
+    logging.info(f"Extracted wall height: {wall_height}")  # Add this line
+    return wall_height
 
 def select_template(lead_data, templates, wall_height):
-    if templates is None or len(templates) == 0:
-        logging.info("No templates available.")
-        return None
-
-    preferred_hitch_type = None
+    logging.info(f"Selecting template for lead data: {lead_data}, wall height: {wall_height}")  # Add this line
     trailer_size = None
-
-    # Extracting trailer size and hitch type from notes
-    if 'notes' in lead_data and len(lead_data['notes']) > 0:
-        note_content = lead_data['notes'][0]['note']
-        match = re.search(r"(7x20|7x14|6x12|7x16|7x18|7x20|8x20)(gooseneck|bumper pull)", note_content)
-        if match:
-            trailer_size = match.group(1)
-            preferred_hitch_type = match.group(2)
-        else:
-            logging.info(f"No match found in notes for lead_id {lead_data['id']}")
-            return None
-
-    if preferred_hitch_type is None or trailer_size is None:
-        logging.info("Insufficient lead data to select a template.")
+    hitch_type = None
+    for note in lead_data['notes']:
+        if 'Trailer size?' in note['note']:
+            trailer_size = note['note'].split('?')[-1].strip()
+        if 'Preferred Hitch type?' in note['note']:
+            hitch_type = note['note'].split('?')[-1].strip()
+    if trailer_size is None or hitch_type is None:
+        logging.info("Insufficient lead data for template selection")  # Add this line
         return None
-
-    template_title = f"{trailer_size}{' Gooseneck' if preferred_hitch_type == 'Gooseneck' else ''} {wall_height}'"
-
     for template in templates:
-        if template['name'] == template_title:
+        if trailer_size in template['name'] and hitch_type in template['name'] and wall_height in template['name']:
+            logging.info(f"Selected template: {template}")  # Add this line
             return template
-
-    logging.info(f"No template found for title: {template_title}")
+    logging.info("No matching template found")  # Add this line
     return None
 
 def analyze_data_with_ai(data):
-    # Use OpenAI's GPT-4 model to analyze the data
+    # Use OpenAI's GPT-3.5-turbo model to analyze the data
     logging.info(f"Analyzing data with AI: {data}")
-    response = openai.Completion.create(engine="text-davinci-004", prompt=data, max_tokens=60)
-    logging.info(f"AI response: {response.choices[0].text.strip()}")
-    return response.choices[0].text.strip()
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": data},
+        ]
+    )
+    ai_response = response['choices'][0]['message']['content'].strip()
+    logging.info(f"AI response: {ai_response}")
+    return
+
 
 def run_bot():
     logging.info("Running the bot...")
@@ -84,24 +87,15 @@ def run_bot():
                         logging.error(f"Failed to get lead data for lead {lead_id}")
                         continue
 
-                    # Check if the lead's status is one of the specific statuses
-                   # if lead_data['status_id'] not in specific_statuses:
-                    #    logging.info(f"Lead {lead_id} status not in specific statuses. Skipping...")
-                     #   continue
-
                     lead_data['notes'] = crm_api.get_lead_notes(lead_id)
                     incoming_sms = crm_api.get_latest_incoming_sms(lead_id)
                     outgoing_sms = crm_api.get_latest_outgoing_sms(lead_id)
                     if incoming_sms is not None and (outgoing_sms is None or incoming_sms["date_created"] > outgoing_sms["date_created"]):
-                        wall_heights = extract_wall_heights(incoming_sms['text'])
-                        if len(wall_heights) > 1:
-                            crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
-                            human_intervention_counter += 1
-                            logging.info(f"Updated status to 'Human Intervention' for lead {lead_id} due to multiple wall heights")
-                        elif len(wall_heights) == 1:
-                            template = select_template(lead_data, templates, wall_heights[0])
+                        wall_height = get_wall_height(incoming_sms['text'])
+                        if wall_height:
+                            template = select_template(lead_data, templates, wall_height)
                             if template:
-                                message = template['text'].replace('{{ wall_height }}', wall_heights[0])
+                                message = template['text'].replace('{{ wall_height }}', wall_height)
                                 # Analyze the incoming SMS with AI before sending the message
                                 ai_response = analyze_data_with_ai(incoming_sms['text'])
                                 logging.info(f"AI response for incoming SMS: {ai_response}")

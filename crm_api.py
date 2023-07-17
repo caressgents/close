@@ -2,6 +2,7 @@ import requests
 from requests.auth import HTTPBasicAuth
 import logging
 from config import CRM_API_KEY, CRM_API_URL
+import phonenumbers
 
 logging.basicConfig(filename='app.log', level=logging.INFO, format='%(levelname)s - %(message)s')
 
@@ -40,9 +41,21 @@ class CRMAPI:
         if response.status_code == 200:
             lead_data = response.json()
             logging.info(f"Received lead data for lead_id {lead_id}: {lead_data}")
+            lead_data['contacts'] = self.get_contacts(lead_id)
             return lead_data
         else:
             logging.error(f"Failed to get lead data for lead_id {lead_id}: {response.text}")
+            return None
+
+    def get_contacts(self, lead_id):
+        logging.info(f"Getting contacts for lead_id {lead_id}")
+        url = f'{self.base_url}/contact/?lead_id={lead_id}'
+        response = requests.get(url, auth=self.auth)
+        self.log_response(response)
+        if response.status_code == 200:
+            return response.json()['data']
+        else:
+            logging.error(f"Failed to get contacts for lead_id {lead_id}: {response.text}")
             return None
 
     def get_lead_notes(self, lead_id):
@@ -93,23 +106,39 @@ class CRMAPI:
             return None
 
     def send_message(self, lead_id, message, task_id, template_id):
-        logging.info(f"Sending message for lead_id {lead_id}")
-        url = f'{self.base_url}/activity/sms'
+        logging.info(f"Attempting to send message for lead_id {lead_id}")
+        # Get lead data
+        lead_data = self.get_lead_data(lead_id)
+        if not lead_data:
+            logging.error(f"No data for lead_id {lead_id}")
+            return False
+
+        # Get remote phone number
+        remote_phone = lead_data['contacts'][0]['phones'][0]['phone']
+
+        # Log the remote_phone value
+        logging.info(f"Remote phone number for lead_id {lead_id}: {remote_phone}")
+
+        # Parse phone number
+        try:
+            parsed_phone = phonenumbers.parse(remote_phone, 'US')
+        except phonenumbers.phonenumberutil.NumberParseException as e:
+            logging.error(f"Failed to parse phone number for lead_id {lead_id}: {e}")
+            return False
+
+        # Prepare data
         data = {
             'lead_id': lead_id,
-            'text': message,
             'status': 'outbox',
             'direction': 'outbound',
             'related_to': task_id,
-            'template_id': template_id
+            'template_id': template_id,
+            'local_phone': '+19042994707',
+            'remote_phone': remote_phone
         }
-        response = requests.post(url, json=data, auth=self.auth)
-        self.log_response(response)
-        if response.status_code == 201:
-            return True
-        else:
-            logging.error(f"Failed to send message for lead_id {lead_id}: {response.text}")
-            return False
+
+        logging.info(f"Prepared data for sending message: {data}")
+        # ...remaining code...
 
     def mark_task_as_complete(self, task_id):
         logging.info(f"Marking task as complete for task_id {task_id}")

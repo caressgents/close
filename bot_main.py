@@ -3,7 +3,6 @@ from threading import Thread
 from flask import Flask, jsonify
 from config import CRM_PHONE_NUMBER
 from crm_api import CRMAPI
-from openai_api import generate_response
 import re
 import logging
 import os
@@ -24,7 +23,7 @@ def extract_wall_heights(text):
 
 def select_template(lead_data, templates, wall_height):
     if templates is None or len(templates) == 0:
-        print("No templates available.")
+        logging.info("No templates available.")
         return None
 
     preferred_hitch_type = None
@@ -38,11 +37,11 @@ def select_template(lead_data, templates, wall_height):
             trailer_size = match.group(1)
             preferred_hitch_type = match.group(2)
         else:
-            print(f"No match found in notes for lead_id {lead_data['id']}")
+            logging.info(f"No match found in notes for lead_id {lead_data['id']}")
             return None
 
     if preferred_hitch_type is None or trailer_size is None:
-        print("Insufficient lead data to select a template.")
+        logging.info("Insufficient lead data to select a template.")
         return None
 
     template_title = f"{trailer_size}{' Gooseneck' if preferred_hitch_type == 'Gooseneck' else ''} {wall_height}'"
@@ -51,25 +50,25 @@ def select_template(lead_data, templates, wall_height):
         if template['name'] == template_title:
             return template
 
-    print(f"No template found for title: {template_title}")
+    logging.info(f"No template found for title: {template_title}")
     return None
 
 def analyze_data_with_ai(data):
     # Use OpenAI's GPT-4 model to analyze the data
+    logging.info(f"Analyzing data with AI: {data}")
     response = openai.Completion.create(engine="text-davinci-004", prompt=data, max_tokens=60)
+    logging.info(f"AI response: {response.choices[0].text.strip()}")
     return response.choices[0].text.strip()
 
 def run_bot():
-    print("Running the bot...")
-    logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
+    logging.info("Running the bot...")
     # Define the specific opportunity statuses we are interested in
     specific_statuses = ['stat_GKAEbEJMZeyQlU7IYFOpd6PorjXupqmcNmmSzQBbcVJ', 'stat_6cqDnnaff2GYLV52VABicFqCV6cat7pyJn7wCJALGWz']
 
     while True:
         try:
-            logging.info("Fetching unprocessed incoming SMS tasks...")
-            tasks = crm_api.get_unprocessed_incoming_sms_tasks()
+            logging.info("Fetching unresponded incoming SMS tasks...")
+            tasks = crm_api.get_unresponded_incoming_sms_tasks()
             logging.info(f"Fetched {len(tasks)} tasks.")
             templates = crm_api.get_sms_templates()
             logging.info(f"Fetched {len(templates)} templates.")
@@ -86,9 +85,9 @@ def run_bot():
                         continue
 
                     # Check if the lead's status is one of the specific statuses
-                    if lead_data['status_id'] not in specific_statuses:
-                        logging.info(f"Lead {lead_id} status not in specific statuses. Skipping...")
-                        continue
+                   # if lead_data['status_id'] not in specific_statuses:
+                    #    logging.info(f"Lead {lead_id} status not in specific statuses. Skipping...")
+                     #   continue
 
                     lead_data['notes'] = crm_api.get_lead_notes(lead_id)
                     incoming_sms = crm_api.get_latest_incoming_sms(lead_id)
@@ -103,6 +102,9 @@ def run_bot():
                             template = select_template(lead_data, templates, wall_heights[0])
                             if template:
                                 message = template['text'].replace('{{ wall_height }}', wall_heights[0])
+                                # Analyze the incoming SMS with AI before sending the message
+                                ai_response = analyze_data_with_ai(incoming_sms['text'])
+                                logging.info(f"AI response for incoming SMS: {ai_response}")
                                 if crm_api.send_message(lead_id, message, task['id'], template['id']):
                                     sent_counter += 1
                                     logging.info(f"Successfully sent SMS template for lead {lead_id}")
@@ -135,6 +137,7 @@ def start_bot():
     if bot_thread is None or not bot_thread.is_alive():
         bot_thread = Thread(target=run_bot)
         bot_thread.start()
+        logging.info("Bot thread started.")
     return jsonify(success=True)
 
 @app.route('/stop', methods=['POST'])
@@ -142,6 +145,7 @@ def stop_bot():
     global bot_thread
     if bot_thread is not None and bot_thread.is_alive():
         bot_thread = None
+        logging.info("Bot thread stopped.")
     return jsonify(success=True)
 
 @app.route('/logs', methods=['GET'])

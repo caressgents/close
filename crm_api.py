@@ -14,24 +14,26 @@ class CRMAPI:
         logging.info(f"Response status code: {response.status_code}")
         logging.info(f"Response content: {response.text}")
 
-    def get_unprocessed_incoming_sms_tasks(self):
-        filter_date = '2023-06-01'
-        url = f'{self.base_url}/task/'
-        query = {
-            'is_complete': False,
-            'date_created__gt': filter_date,
-            '_type': 'incoming_sms'
-        }
+    def get_unresponded_incoming_sms_tasks(self):
+        url = f'{self.base_url}/activity/sms/'
+        query = {'direction': 'inbound'}
         response = requests.get(url, params=query, auth=self.auth)
         self.log_response(response)
         if response.status_code == 200:
-            return response.json()['data']
+            all_incoming_sms = response.json()['data']
+            unresponded_sms_tasks = []
+            for sms in all_incoming_sms:
+                lead_id = sms['lead_id']
+                latest_outgoing_sms = self.get_latest_outgoing_sms(lead_id)
+                if latest_outgoing_sms is None or sms['date_created'] > latest_outgoing_sms['date_created']:
+                    unresponded_sms_tasks.append(sms)
+            return unresponded_sms_tasks
         else:
-            logging.error(f"Failed to get unprocessed incoming SMS tasks: {response.text}")
+            logging.error(f"Failed to get unresponded incoming SMS tasks: {response.text}")
             return []
 
-
     def get_lead_data(self, lead_id):
+        logging.info(f"Getting lead data for lead_id {lead_id}")
         url = f'{self.base_url}/lead/{lead_id}'
         response = requests.get(url, auth=self.auth)
         self.log_response(response)
@@ -44,6 +46,7 @@ class CRMAPI:
             return None
 
     def get_lead_notes(self, lead_id):
+        logging.info(f"Getting lead notes for lead_id {lead_id}")
         url = f'{self.base_url}/activity/note/?lead_id={lead_id}'
         response = requests.get(url, auth=self.auth)
         self.log_response(response)
@@ -55,6 +58,7 @@ class CRMAPI:
 
     def get_latest_incoming_sms(self, lead_id):
         try:
+            logging.info(f"Getting latest incoming SMS for lead_id {lead_id}")
             url = f"{self.base_url}/activity/sms/?lead_id={lead_id}"
             response = requests.get(url, auth=self.auth)
             if response.status_code == 200:
@@ -72,6 +76,7 @@ class CRMAPI:
 
     def get_latest_outgoing_sms(self, lead_id):
         try:
+            logging.info(f"Getting latest outgoing SMS for lead_id {lead_id}")
             url = f"{self.base_url}/activity/sms/?lead_id={lead_id}"
             response = requests.get(url, auth=self.auth)
             if response.status_code == 200:
@@ -86,7 +91,9 @@ class CRMAPI:
         except Exception as e:
             logging.exception(f"Failed to get latest outgoing SMS for lead_id {lead_id}")
             return None
+
     def send_message(self, lead_id, message, task_id, template_id):
+        logging.info(f"Sending message for lead_id {lead_id}")
         url = f'{self.base_url}/activity/sms'
         data = {
             'lead_id': lead_id,
@@ -105,6 +112,7 @@ class CRMAPI:
             return False
 
     def mark_task_as_complete(self, task_id):
+        logging.info(f"Marking task as complete for task_id {task_id}")
         url = f'{self.base_url}/task/{task_id}'
         data = {
             'is_complete': True
@@ -118,6 +126,7 @@ class CRMAPI:
             return False
 
     def update_lead_status(self, lead_id, status_id):
+        logging.info(f"Updating lead status for lead_id {lead_id}")
         url = f'{self.base_url}/lead/{lead_id}'
         data = {
             'status_id': status_id
@@ -131,6 +140,7 @@ class CRMAPI:
             return False
 
     def get_sms_templates(self):
+        logging.info("Getting SMS templates")
         url = f'{self.base_url}/sms_template/'
         response = requests.get(url, auth=self.auth)
         self.log_response(response)

@@ -115,7 +115,9 @@ def run_bot():
                                 human_intervention_counter += 1
                                 logging.info(f"Updated status to 'Human Intervention' for lead {lead_id} due to no matching template")
                         else:
-                            logging.error(f"No valid wall height found in SMS for lead {lead_id}")
+                            crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
+                            human_intervention_counter += 1
+                            logging.info(f"Updated status to 'Human Intervention' for lead {lead_id} due to no valid wall height found in SMS")
                     else:
                         logging.error(f"No incoming SMS found for lead {lead_id}")
                 except Exception as e:
@@ -125,7 +127,6 @@ def run_bot():
         except Exception as e:
             logging.exception("Failed to fetch tasks")
         time.sleep(5)
-
 
 
 @app.route('/start', methods=['POST'])

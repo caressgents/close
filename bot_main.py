@@ -8,6 +8,12 @@ import logging
 import os
 import openai
 
+logging.basicConfig(
+    filename='app.log',
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.DEBUG
+)
+
 app = Flask(__name__)
 bot_thread = None
 crm_api = CRMAPI()
@@ -33,6 +39,7 @@ def get_wall_height(sms_text):
 
 
 def extract_information(lead_data):
+    logging.debug(f"Extracting information from lead data: {lead_data}")
     notes = [note['note'] for note in lead_data.get('notes', [])]
     combined_data = ' '.join(notes)
     hitch_type_pattern = r"(bumper pull|gooseneck)"
@@ -46,6 +53,7 @@ def extract_information(lead_data):
     return hitch_type, trailer_size
 
 def select_template(hitch_type, trailer_size, wall_height, templates):
+    logging.debug(f"Selecting template from {len(templates)} templates...")
     logging.info(f"Selecting template for hitch type: {hitch_type}, trailer size: {trailer_size}, wall height: {wall_height}")  # Add this line
     # Format the attributes into a string similar to template names
     formatted_attributes = f"{hitch_type} {trailer_size}x{wall_height}"
@@ -63,6 +71,7 @@ def select_template(hitch_type, trailer_size, wall_height, templates):
 
 def analyze_data_with_ai(data):
     # Use OpenAI's GPT-3.5-turbo model to analyze the data
+    logging.debug(f"Sending data to AI for analysis: {data}")
     logging.info(f"Analyzing data with AI: {data}")
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
@@ -76,6 +85,7 @@ def analyze_data_with_ai(data):
     return
 
 def run_bot():
+    logging.debug("Starting bot run...")
     logging.info("Running the bot...")
     # Define the specific opportunity statuses we are interested in
     specific_statuses = ['stat_GKAEbEJMZeyQlU7IYFOpd6PorjXupqmcNmmSzQBbcVJ', 'stat_6cqDnnaff2GYLV52VABicFqCV6cat7pyJn7wCJALGWz']
@@ -154,6 +164,7 @@ def run_bot():
 
 @app.route('/start', methods=['POST'])
 def start_bot():
+    logging.debug("Received start request")
     global bot_thread
     if bot_thread is None or not bot_thread.is_alive():
         bot_thread = Thread(target=run_bot)
@@ -163,6 +174,7 @@ def start_bot():
 
 @app.route('/stop', methods=['POST'])
 def stop_bot():
+    logging.debug("Receieved stop request")
     global bot_thread
     if bot_thread is not None and bot_thread.is_alive():
         bot_thread = None
@@ -171,6 +183,7 @@ def stop_bot():
 
 @app.route('/logs', methods=['GET'])
 def get_logs():
+    logging.debug("Received logs request")
     with open('app.log', 'r') as f:
         return f.read()
 

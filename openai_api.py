@@ -11,7 +11,7 @@ def generate_response(prompt):
     logger.info(f"Generating response for prompt: {prompt}")
 
     response = openai.ChatCompletion.create(
-        model="gpt-4",
+        model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": prompt},

@@ -4,7 +4,12 @@ import logging
 from config import CRM_API_KEY, CRM_API_URL
 import phonenumbers
 
-logging.basicConfig(filename='app.log', level=logging.INFO, format='%(levelname)s - %(message)s')
+logging.basicConfig(
+    filename='app.log',
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.DEBUG
+)
+
 
 class CRMAPI:
     def __init__(self):
@@ -16,6 +21,7 @@ class CRMAPI:
         logging.info(f"Response content: {response.text}")
 
     def get_unresponded_incoming_sms_tasks(self):
+        logging.debug("Fetching unresponded incoming SMS tasks...")
         url = f'{self.base_url}/activity/sms/'
         query = {'direction': 'inbound'}
         response = requests.get(url, params=query, auth=self.auth)
@@ -34,6 +40,7 @@ class CRMAPI:
             return []
 
     def get_lead_data(self, lead_id):
+        logging.debug(f"Fetching lead data for lead ID: {lead_id}")
         logging.info(f"Getting lead data for lead_id {lead_id}")
         url = f'{self.base_url}/lead/{lead_id}'
         response = requests.get(url, auth=self.auth)
@@ -48,6 +55,7 @@ class CRMAPI:
             return None
 
     def get_contacts(self, lead_id):
+        logging.debug(f"Fetching contacts for lead ID: {lead_id}")
         logging.info(f"Getting contacts for lead_id {lead_id}")
         url = f'{self.base_url}/contact/?lead_id={lead_id}'
         response = requests.get(url, auth=self.auth)
@@ -59,6 +67,7 @@ class CRMAPI:
             return None
 
     def get_lead_notes(self, lead_id):
+        logging.debug(f"Fetching lead notes for lead ID: {lead_id}")
         logging.info(f"Getting lead notes for lead_id {lead_id}")
         url = f'{self.base_url}/activity/note/?lead_id={lead_id}'
         response = requests.get(url, auth=self.auth)
@@ -70,6 +79,7 @@ class CRMAPI:
             return None
 
     def get_latest_incoming_sms(self, lead_id):
+        logging.debug(f"Fetching latest incoming SMS for lead ID: {lead_id}")
         try:
             logging.info(f"Getting latest incoming SMS for lead_id {lead_id}")
             url = f"{self.base_url}/activity/sms/?lead_id={lead_id}"
@@ -88,6 +98,7 @@ class CRMAPI:
             return None
 
     def get_latest_outgoing_sms(self, lead_id):
+        logging.debug(f"Fetching latest outgoing SMS for lead ID: {lead_id}")
         try:
             logging.info(f"Getting latest outgoing SMS for lead_id {lead_id}")
             url = f"{self.base_url}/activity/sms/?lead_id={lead_id}"
@@ -106,6 +117,7 @@ class CRMAPI:
             return None
 
     def send_message(self, lead_id, message, task_id, template_id):
+        logging.debug(f"Preparing to send message for lead ID: {lead_id}")
         logging.info(f"Attempting to send message for lead_id {lead_id}")
         # Get lead data
         lead_data = self.get_lead_data(lead_id)
@@ -141,6 +153,7 @@ class CRMAPI:
         # ...remaining code...
 
     def mark_task_as_complete(self, task_id):
+        logging.debug(f"Marking task as complete for task ID: {task_id}")
         logging.info(f"Marking task as complete for task_id {task_id}")
         url = f'{self.base_url}/task/{task_id}'
         data = {
@@ -155,6 +168,7 @@ class CRMAPI:
             return False
 
     def update_lead_status(self, lead_id, status_id):
+        logging.debug(f"Updating lead status for lead ID: {lead_id}")
         logging.info(f"Updating lead status for lead_id {lead_id}")
         url = f'{self.base_url}/lead/{lead_id}'
         data = {
@@ -169,6 +183,7 @@ class CRMAPI:
             return False
 
     def get_sms_templates(self):
+        logging.debug("Fetching SMS templates...")
         logging.info("Getting SMS templates")
         url = f'{self.base_url}/sms_template/'
         response = requests.get(url, auth=self.auth)

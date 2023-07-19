@@ -7,11 +7,26 @@ import re
 import logging
 import os
 import openai
+import sys
+
+# Define a Handler which writes INFO messages or higher to the sys.stderr (this could be your console)
+console = logging.StreamHandler(sys.stderr)
+console.setLevel(logging.INFO)
+
+# Define a Handler for the log file
+file_handler = logging.FileHandler('app.log')
+file_handler.setLevel(logging.DEBUG)
+
+# Set a format which is simpler for console use
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+
+# Tell the handler to use this format
+console.setFormatter(formatter)
+file_handler.setFormatter(formatter)
 
 logging.basicConfig(
-    filename='app.log',
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.DEBUG
+    level=logging.DEBUG,
+    handlers=[file_handler, console]
 )
 
 app = Flask(__name__)
@@ -22,19 +37,25 @@ crm_api = CRMAPI()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def get_wall_height(sms_text):
-    logging.info(f"Analyzing SMS text for wall height: {sms_text}")  
-    prompt = f"In the following SMS text, a customer is discussing the wall height of a trailer they're interested in, it will be a number somewhere in their response either 2, 3, or 4, and will be in natural language: \"{sms_text}\". Could you tell me the wall height the customer is referring to? respond with a single numerical digit only, nothing else, no special characters, nothing, do not respond with anything other than the number you find?"
+    logging.info(f"Analyzing SMS text for wall height: {sms_text}")
+    prompt = f"In the following SMS text, a customer is discussing the wall height of a trailer they're interested in. The height will be a number somewhere in their response, either 2, 3, or 4, possibly 2', 4', 5' and will be in their natural language or conversation, here is the text you need to analyze and extract the single digit wall height from: \"{sms_text}\". Could you tell me the wall height the customer is referring to? YOU MUST respond with a single numerical digit only, no additional text or explanation."
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
+        model="gpt-4",
         messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "system", "content": "You are a helpful assistant and follow directions perfectly"},
             {"role": "user", "content": prompt},
         ]
     )
     wall_height_response = response['choices'][0]['message']['content'].strip()
     # Extract just the number from the AI's response
-    wall_height = re.search(r'\d+', wall_height_response).group()
-    logging.info(f"Extracted wall height: {wall_height}")  
+    match = re.search(r'\d+', wall_height_response)
+    if match is not None:
+        wall_height = match.group()
+    else:
+        wall_height = "No wall height found in the response"
+        # Or alternatively, raise a more descriptive error
+        # raise ValueError("No wall height found in the response")
+    logging.info(f"Extracted wall height: {wall_height}")
     return wall_height
 
 
@@ -53,7 +74,6 @@ def extract_information(lead_data):
     return hitch_type, trailer_size
 
 def select_template(hitch_type, trailer_size, wall_height, templates):
-    logging.debug(f"Selecting template from {len(templates)} templates...")
     logging.info(f"Selecting template for hitch type: {hitch_type}, trailer size: {trailer_size}, wall height: {wall_height}")  # Add this line
     # Format the attributes into a string similar to template names
     formatted_attributes = f"{hitch_type} {trailer_size}x{wall_height}"
@@ -70,11 +90,11 @@ def select_template(hitch_type, trailer_size, wall_height, templates):
 
 
 def analyze_data_with_ai(data):
-    # Use OpenAI's GPT-3.5-turbo model to analyze the data
+    # Use OpenAI's GPT-4 model to analyze the data
     logging.debug(f"Sending data to AI for analysis: {data}")
     logging.info(f"Analyzing data with AI: {data}")
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
+        model="gpt-4",
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": data},
@@ -88,7 +108,14 @@ def run_bot():
     logging.debug("Starting bot run...")
     logging.info("Running the bot...")
     # Define the specific opportunity statuses we are interested in
-    specific_statuses = ['stat_GKAEbEJMZeyQlU7IYFOpd6PorjXupqmcNmmSzQBbcVJ', 'stat_6cqDnnaff2GYLV52VABicFqCV6cat7pyJn7wCJALGWz']
+    specific_statuses = ['stat_GKAEbEJMZeyQlU7IYFOpd6PorjXupqmcNmmSzQBbcVJ',
+                         'stat_6cqDnnaff2GYLV52VABicFqCV6cat7pyJn7wCJALGWz']
+
+    # Fetch all leads with the specific statuses
+    lead_ids = crm_api.get_leads_with_specific_statuses(specific_statuses)
+    logging.info(f"Fetched {len(lead_ids)} leads with the specific statuses.")
+
+    # ... Rest of the code ...
 
     while True:
         try:

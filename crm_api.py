@@ -3,11 +3,26 @@ from requests.auth import HTTPBasicAuth
 import logging
 from config import CRM_API_KEY, CRM_API_URL
 import phonenumbers
+import sys
+
+# Define a Handler which writes INFO messages or higher to the sys.stderr (this could be your console)
+console = logging.StreamHandler(sys.stderr)
+console.setLevel(logging.INFO)
+
+# Define a Handler for the log file
+file_handler = logging.FileHandler('app.log')
+file_handler.setLevel(logging.DEBUG)
+
+# Set a format which is simpler for console use
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+
+# Tell the handler to use this format
+console.setFormatter(formatter)
+file_handler.setFormatter(formatter)
 
 logging.basicConfig(
-    filename='app.log',
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.DEBUG
+    level=logging.DEBUG,
+    handlers=[file_handler, console]
 )
 
 
@@ -18,7 +33,7 @@ class CRMAPI:
 
     def log_response(self, response):
         logging.info(f"Response status code: {response.status_code}")
-        logging.info(f"Response content: {response.text}")
+        logging.info(f"Response content: RECEIVED")
 
     def get_unresponded_incoming_sms_tasks(self):
         logging.debug("Fetching unresponded incoming SMS tasks...")
@@ -47,7 +62,7 @@ class CRMAPI:
         self.log_response(response)
         if response.status_code == 200:
             lead_data = response.json()
-            logging.info(f"Received lead data for lead_id {lead_id}: {lead_data}")
+            logging.info(f"Received lead data for lead_id {lead_id}")
             lead_data['contacts'] = self.get_contacts(lead_id)
             return lead_data
         else:
@@ -204,3 +219,31 @@ class CRMAPI:
         else:
             logging.error(f"Failed to get SMS templates: {response.text}")
             return None
+
+    def get_leads_with_specific_statuses(self, specific_statuses):
+        logging.debug("Fetching all leads with specific statuses...")
+        status_ids = ','.join(specific_statuses)
+        base_url = f'{self.base_url}/opportunity/'
+        lead_ids = []
+        limit = 100  # Fetch 100 records at a time as per the API's documentation
+        skip = 0  # Start with the first record
+
+        while True:
+            query = {'status_id__in': status_ids, '_limit': limit, '_skip': skip}
+            url = f'{base_url}'
+            response = requests.get(url, params=query, auth=self.auth)
+            self.log_response(response)
+            if response.status_code == 200:
+                opportunities = response.json()['data']
+                lead_ids.extend([opp['lead_id'] for opp in opportunities])
+
+                if not response.json().get('has_more'):  # If there's no more data, stop fetching
+                    break
+                else:
+                    skip += limit  # Otherwise, move to the next page of data
+            else:
+                logging.error(f"Failed to fetch leads with specific statuses: {response.text}")
+                break
+
+        logging.info(f"Fetched {len(lead_ids)} leads with the specific statuses.")
+        return lead_ids

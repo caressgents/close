@@ -58,7 +58,6 @@ def get_wall_height(sms_text):
     logging.info(f"Extracted wall height: {wall_height}")
     return wall_height
 
-
 def extract_information(lead_data):
     logging.debug(f"Extracting information from lead data: {lead_data}")
     notes = [note['note'] for note in lead_data.get('notes', [])]
@@ -88,7 +87,6 @@ def select_template(hitch_type, trailer_size, wall_height, templates):
     logging.info("No matching template found")  # Add this line
     return None
 
-
 def analyze_data_with_ai(data):
     # Use OpenAI's GPT-4 model to analyze the data
     logging.debug(f"Sending data to AI for analysis: {data}")
@@ -104,18 +102,27 @@ def analyze_data_with_ai(data):
     logging.info(f"AI response: {ai_response}")
     return
 
+def load_processed_tasks(filename):
+    try:
+        with open(filename, 'r') as f:
+            return set(line.strip() for line in f)
+    except FileNotFoundError:
+        return set()
+
+def save_processed_tasks(filename, task_id):
+    with open(filename, 'a') as f:
+        f.write(task_id + '\n')
+
 def run_bot():
     logging.debug("Starting bot run...")
     logging.info("Running the bot...")
-    # Define the specific opportunity statuses we are interested in
     specific_statuses = ['stat_GKAEbEJMZeyQlU7IYFOpd6PorjXupqmcNmmSzQBbcVJ',
                          'stat_6cqDnnaff2GYLV52VABicFqCV6cat7pyJn7wCJALGWz']
 
-    # Fetch all leads with the specific statuses
     lead_ids = crm_api.get_leads_with_specific_statuses(specific_statuses)
     logging.info(f"Fetched {len(lead_ids)} leads with the specific statuses.")
 
-    # ... Rest of the code ...
+    processed_tasks = load_processed_tasks('processed_tasks.txt')  # Load the processed tasks from a file
 
     while True:
         try:
@@ -128,12 +135,17 @@ def run_bot():
             human_intervention_counter = 0
             failed_counter = 0
             for task in tasks:
+                if task['id'] in processed_tasks:  # Check if the task has been processed
+                    continue
+                task_processed = False  # Add a flag to indicate whether the task was processed successfully
                 try:
                     lead_id = task['lead_id']
                     logging.info(f"Processing lead {lead_id}...")
                     lead_data = crm_api.get_lead_data(lead_id)
                     if lead_data is None:
                         logging.error(f"Failed to get lead data for lead {lead_id}")
+                        crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
+                        human_intervention_counter += 1
                         continue
 
                     # Extract the first phone number of the first contact
@@ -142,6 +154,8 @@ def run_bot():
                         remote_phone = contacts[0]['phones'][0]['phone']
                     else:
                         logging.error(f"No phone number found for lead {lead_id}")
+                        crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
+                        human_intervention_counter += 1
                         continue
 
                     lead_data['notes'] = crm_api.get_lead_notes(lead_id)
@@ -149,6 +163,8 @@ def run_bot():
                     hitch_type, trailer_size = extract_information(lead_data)
                     if hitch_type is None or trailer_size is None:
                         logging.info("Insufficient lead data for hitch type or trailer size")
+                        crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
+                        human_intervention_counter += 1
                         continue
 
                     incoming_sms = crm_api.get_latest_incoming_sms(lead_id)
@@ -162,16 +178,14 @@ def run_bot():
                                 # Analyze the incoming SMS with AI before sending the message
                                 ai_response = analyze_data_with_ai(incoming_sms['text'])
                                 logging.info(f"AI response for incoming SMS: {ai_response}")
-                                if crm_api.send_message(lead_id, '', task['id'],
-                                                        template['id']):  # Removed `message` from the arguments
+                                if crm_api.send_message(lead_id, '', task['id'], template['id']):  # Removed `message` from the arguments
                                     sent_counter += 1
                                     logging.info(f"Successfully sent SMS template for lead {lead_id}")
+                                    task_processed = True  # Mark the task as processed if the message was sent successfully
                                 else:
-                                    crm_api.update_lead_status(lead_id,
-                                                               'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
+                                    crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
                                     human_intervention_counter += 1
-                                    logging.info(
-                                        f"Updated status to 'Human Intervention' for lead {lead_id} due to SMS sending failure")
+                                    logging.info(f"Updated status to 'Human Intervention' for lead {lead_id} due to SMS sending failure")
 
                             else:
                                 crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
@@ -183,9 +197,16 @@ def run_bot():
                             logging.info(f"Updated status to 'Human Intervention' for lead {lead_id} due to no valid wall height found in SMS")
                     else:
                         logging.error(f"No incoming SMS found for lead {lead_id}")
+                        crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
+                        human_intervention_counter += 1
                 except Exception as e:
                     logging.exception(f"Failed to process lead {lead_id}")
                     failed_counter += 1
+                finally:
+                    if task_processed:  # Only mark the task as processed if it was processed successfully
+                        processed_tasks.add(task['id'])  # Add the task ID to the set
+                        save_processed_tasks('processed_tasks.txt', task['id'])  # Save the processed task to a file
+                        crm_api.update_task_status(task['id'])  # Mark the task as complete in the CRM
             logging.info(f"Sent {sent_counter} messages, marked {human_intervention_counter} leads for human intervention, failed to process {failed_counter} leads")
         except Exception as e:
             logging.exception("Failed to fetch tasks")

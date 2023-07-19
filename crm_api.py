@@ -35,6 +35,21 @@ class CRMAPI:
         logging.info(f"Response status code: {response.status_code}")
         logging.info(f"Response content: RECEIVED")
 
+    def update_task_status(self, task_id):
+        logging.debug(f"Updating task status for task ID: {task_id}")
+        url = f'{self.base_url}/task/{task_id}/'
+        data = {
+            'is_complete': True
+        }
+        response = requests.put(url, json=data, auth=self.auth)
+        self.log_response(response)
+        if response.status_code == 200:
+            logging.info(f"Task {task_id} marked as complete.")
+            return True
+        else:
+            logging.error(f"Failed to update task status for task_id {task_id}: {response.text}")
+            return False
+
     def get_unresponded_incoming_sms_tasks(self):
         logging.debug("Fetching unresponded incoming SMS tasks...")
         url = f'{self.base_url}/activity/sms/'
@@ -44,7 +59,11 @@ class CRMAPI:
         if response.status_code == 200:
             all_incoming_sms = response.json()['data']
             unresponded_sms_tasks = []
+            with open('processed_tasks.txt', 'r') as file:
+                processed_tasks = file.read().splitlines()
             for sms in all_incoming_sms:
+                if sms['id'] in processed_tasks:
+                    continue
                 lead_id = sms['lead_id']
                 latest_outgoing_sms = self.get_latest_outgoing_sms(lead_id)
                 if latest_outgoing_sms is None or sms['date_created'] > latest_outgoing_sms['date_created']:

@@ -150,7 +150,18 @@ class CRMAPI:
         }
 
         logging.info(f"Prepared data for sending message: {data}")
-        # ...remaining code...
+
+        # Send the request to CRM API
+        url = f'{self.base_url}/activity/sms/'
+        response = requests.post(url, json=data, auth=self.auth)
+        self.log_response(response)
+
+        if response.status_code in {200, 201}:
+            logging.info(f"Message sent successfully for lead_id {lead_id}")
+            return True
+        else:
+            logging.error(f"Failed to send message for lead_id {lead_id}: {response.text}")
+            return False
 
     def mark_task_as_complete(self, task_id):
         logging.debug(f"Marking task as complete for task ID: {task_id}")

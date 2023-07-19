@@ -132,17 +132,20 @@ def run_bot():
                         if wall_height:
                             template = select_template(hitch_type, trailer_size, wall_height, templates)
                             if template:
-                                message = template['text'].replace('{{ wall_height }}', wall_height)
                                 # Analyze the incoming SMS with AI before sending the message
                                 ai_response = analyze_data_with_ai(incoming_sms['text'])
                                 logging.info(f"AI response for incoming SMS: {ai_response}")
-                                if crm_api.send_message(lead_id, message, task['id'], template['id']):
+                                if crm_api.send_message(lead_id, '', task['id'],
+                                                        template['id']):  # Removed `message` from the arguments
                                     sent_counter += 1
                                     logging.info(f"Successfully sent SMS template for lead {lead_id}")
-                                else: 
-                                    crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
+                                else:
+                                    crm_api.update_lead_status(lead_id,
+                                                               'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
                                     human_intervention_counter += 1
-                                    logging.info(f"Updated status to 'Human Intervention' for lead {lead_id} due to SMS sending failure")
+                                    logging.info(
+                                        f"Updated status to 'Human Intervention' for lead {lead_id} due to SMS sending failure")
+
                             else:
                                 crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
                                 human_intervention_counter += 1

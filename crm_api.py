@@ -36,11 +36,26 @@ class CRMAPI:
         logging.info(f"Response status code: {response.status_code}")
         logging.info(f"Response content: RECEIVED")
 
-    def update_task_status(self, task_id):
+    def get_all_users(self):
+        logging.debug("Fetching all users")
+        url = f'{self.base_url}/user/'
+        response = requests.get(url, auth=self.auth)
+        self.log_response(response)
+        if response.status_code == 200:
+            users = response.json()
+            logging.info(f"Fetched all users.")
+            print(f"Users data: {users}")  # Add this line to print the users data
+            return users
+        else:
+            logging.error(f"Failed to fetch users: {response.text}")
+            return None
+
+    def update_task_status(self, task_id, assigned_to):
         logging.debug(f"Updating task status for task ID: {task_id}")
         url = f'{self.base_url}/task/{task_id}/'
         data = {
-            'is_complete': True
+            'is_complete': True,
+            'assigned_to': assigned_to
         }
         response = requests.put(url, json=data, auth=self.auth)
         self.log_response(response)

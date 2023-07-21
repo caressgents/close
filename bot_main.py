@@ -124,16 +124,38 @@ def run_bot():
 
     processed_tasks = load_processed_tasks('processed_tasks.txt')  # Load the processed tasks from a file
 
+    # Fetch all users and store their IDs
+    users_data = crm_api.get_all_users()
+    if isinstance(users_data.get('data', {}), list):
+        users = users_data['data']
+        user_ids = [user['id'] for user in users] if users else []
+    else:
+        print("Error: users_data['data'] is not a list")
+        user_ids = []
+
     while True:
         try:
             print("Fetching unresponded incoming SMS tasks...")
             tasks = crm_api.get_unresponded_incoming_sms_tasks()
+            if tasks is None:
+                print("Failed to fetch tasks")
+                continue
             print(f"Fetched {len(tasks)} tasks.")
             templates = crm_api.get_sms_templates()
+            if templates is None:
+                print("Failed to fetch templates")
+                continue
             print(f"Fetched {len(templates)} templates.")
             sent_counter = 0
             human_intervention_counter = 0
             failed_counter = 0
+            users_data = crm_api.get_all_users()
+            if isinstance(users_data.get('data', {}), list):
+                users = users_data['data']
+                user_ids = [user['id'] for user in users] if users else []
+            else:
+                print("Error: users_data['data'] is not a list")
+                user_ids = []
             for task in tasks:
                 print(f"Starting processing for task {task['id']}")
                 try:
@@ -182,9 +204,6 @@ def run_bot():
                                 if crm_api.send_message(lead_id, '', task['id'], template['id']):  # Removed `message` from the arguments
                                     sent_counter += 1
                                     print(f"Successfully sent SMS template for lead {lead_id}")
-                                    processed_tasks.add(task['id'])  # Add the task ID to the set
-                                    save_processed_tasks('processed_tasks.txt', task['id'])  # Save the processed task to a file
-                                    crm_api.update_task_status(task['id'])  # Mark the task as complete in the CRM
                                 else:
                                     crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
                                     human_intervention_counter += 1
@@ -205,12 +224,17 @@ def run_bot():
                 except Exception as e:
                     print(f"Failed to process lead {lead_id}")
                     failed_counter += 1
+                finally:
+                    processed_tasks.add(task['id'])  # Add the task ID to the set
+                    save_processed_tasks('processed_tasks.txt', task['id'])  # Save the processed task to a file
+                    # Use the first user ID to mark the task as complete
+                    if user_ids:
+                        crm_api.update_task_status(task['id'], user_ids[0])  # Mark the task as complete in the CRM
         except Exception as e:
             print(f"Exception occurred while processing tasks: {e}")
             print("Failed to fetch tasks")
         time.sleep(5)
     print(f"Sent {sent_counter} messages, marked {human_intervention_counter} leads for human intervention, failed to process {failed_counter} leads")
-
 
 
 

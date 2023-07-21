@@ -4,7 +4,6 @@ import logging
 from config import CRM_API_KEY, CRM_API_URL
 import phonenumbers
 import sys
-from datetime import datetime, timedelta
 
 # Define a Handler which writes INFO messages or higher to the sys.stderr (this could be your console)
 console = logging.StreamHandler(sys.stderr)
@@ -56,23 +55,19 @@ class CRMAPI:
         url = f'{self.base_url}/activity/sms/'
         query = {'direction': 'inbound'}
         response = requests.get(url, params=query, auth=self.auth)
-        self.log_response(response)
+	        self.log_response(response)
+        unresponded_sms_tasks = []
         if response.status_code == 200:
             all_incoming_sms = response.json()['data']
-            unresponded_sms_tasks = []
             with open('processed_tasks.txt', 'r') as file:
                 processed_tasks = file.read().splitlines()
             for sms in all_incoming_sms:
                 if sms['id'] in processed_tasks:
                     continue
-                lead_id = sms['lead_id']
-                latest_outgoing_sms = self.get_latest_outgoing_sms(lead_id)
-                if latest_outgoing_sms is None or sms['date_created'] > latest_outgoing_sms['date_created']:
-                    unresponded_sms_tasks.append(sms)
-            return unresponded_sms_tasks
+                unresponded_sms_tasks.append(sms)
         else:
             logging.error(f"Failed to get unresponded incoming SMS tasks: {response.text}")
-            return []
+        return unresponded_sms_tasks
 
     def get_lead_data(self, lead_id):
         logging.debug(f"Fetching lead data for lead ID: {lead_id}")
@@ -205,17 +200,12 @@ class CRMAPI:
         data = {
             'is_complete': True
         }
-        try:
-            response = requests.put(url, json=data, auth=self.auth)
-            self.log_response(response)
-            if response.status_code == 200:
-                logging.info(f"Task {task_id} marked as complete.")
-                return True
-            else:
-                logging.error(f"Failed to mark task as complete for task_id {task_id}: {response.text}")
-                return False
-        except Exception as e:
-            logging.error(f"Failed to mark task as complete for task_id {task_id}: {str(e)}")
+        response = requests.put(url, json=data, auth=self.auth)
+        self.log_response(response)
+        if response.status_code == 200:
+            return True
+        else:
+            logging.error(f"Failed to mark task as complete for task_id {task_id}: {response.text}")
             return False
 
     def update_lead_status(self, lead_id, status_id):
@@ -251,32 +241,32 @@ class CRMAPI:
         base_url = f'{self.base_url}/opportunity/'
         lead_ids = []
         limit = 100  # Fetch 100 records at a time as per the API's documentation
-        start_date = datetime.now() - timedelta(days=365)  # 1 year ago
-        end_date = datetime.now()
-        date_range = timedelta(days=1)  # Process leads 1 day at a time
+        skip = 0  # Start with the first record
 
-        while start_date <= end_date:
-            query = f'status_id:"{status_ids}" date_created:{{"{start_date.isoformat()}" TO "{(start_date + date_range).isoformat()}"}}'
-            skip = 0  # Start with the first record
+        while True:
+            query = {'status_id__in': status_ids, '_limit': limit, '_skip': skip}
+            url = f'{base_url}'
+            response = requests.get(url, params=query, auth=self.auth)
+            self.log_response(response)
+            if response.status_code == 200:
+                opportunities = response.json()['data']
+                lead_ids.extend([opp['lead_id'] for opp in opportunities])
 
-            while True:
-                params = {'_limit': limit, '_skip': skip, 'query': query}
-                url = f'{base_url}'
-                response = requests.get(url, params=params, auth=self.auth)
-                self.log_response(response)
-                if response.status_code == 200:
-                    opportunities = response.json()['data']
-                    lead_ids.extend([opp['lead_id'] for opp in opportunities])
-
-                    if not response.json().get('has_more'):  # If there's no more data, stop fetching
-                        break
-                    else:
-                        skip += limit  # Otherwise, move to the next page of data
-                else:
-                    logging.error(f"Failed to fetch leads with specific statuses: {response.text}")
+                if not response.json().get('has_more'):  # If there's no more data, stop fetching
                     break
-
-            start_date += date_range
+                else:
+                    skip += limit  # Otherwise, move to the next page of data
+            else:
+                logging.error(f"Failed to fetch leads with specific statuses: {response.text}")
+                break
 
         logging.info(f"Fetched {len(lead_ids)} leads with the specific statuses.")
         return lead_ids
+
+    def load_processed_tasks(filename):
+        try:
+            with open(filename, 'r') as file:
+                processed_tasks = set(line.strip() for line in file)
+            return processed_tasks
+        except FileNotFoundError:
+            return set()

@@ -284,9 +284,12 @@ class CRMAPI:
                     lead_ids.extend([opp['lead_id'] for opp in opportunities])
 
                     if not response.json().get('has_more'):  # If there's no more data, stop fetching
+                        logging.info(
+                            f"Finished fetching leads for date range {start_date.isoformat()} to {(start_date + date_range).isoformat()}")
                         break
                     else:
                         skip += limit  # Otherwise, move to the next page of data
+                        logging.info(f"Moving to the next page of data (skip: {skip})")
                 else:
                     logging.error(f"Failed to fetch leads with specific statuses: {response.text}")
                     break

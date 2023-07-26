@@ -44,7 +44,7 @@ class CRMAPI:
         if response.status_code == 200:
             users = response.json()
             logging.info(f"Fetched all users.")
-            print(f"Users data: {users}")  # Add this line to print the users data
+            
             return users
         else:
             logging.error(f"Failed to fetch users: {response.text}")
@@ -66,10 +66,10 @@ class CRMAPI:
             logging.error(f"Failed to update task status for task_id {task_id}: {response.text}")
             return False
 
-    def get_unresponded_incoming_sms_tasks(self):
-        logging.debug("Fetching unresponded incoming SMS tasks...")
+    def get_unresponded_incoming_sms_tasks_for_lead(self, lead_id):
+        logging.debug(f"Fetching unresponded incoming SMS tasks for lead ID: {lead_id}")
         url = f'{self.base_url}/activity/sms/'
-        query = {'direction': 'inbound'}
+        query = {'direction': 'inbound', 'lead_id': lead_id}
         response = requests.get(url, params=query, auth=self.auth)
         self.log_response(response)
         if response.status_code == 200:
@@ -86,7 +86,7 @@ class CRMAPI:
                     unresponded_sms_tasks.append(sms)
             return unresponded_sms_tasks
         else:
-            logging.error(f"Failed to get unresponded incoming SMS tasks: {response.text}")
+            logging.error(f"Failed to get unresponded incoming SMS tasks for lead ID: {lead_id}: {response.text}")
             return []
 
     def get_lead_data(self, lead_id):
@@ -260,25 +260,26 @@ class CRMAPI:
             logging.error(f"Failed to get SMS templates: {response.text}")
             return None
 
-    def get_leads_with_specific_statuses(self, specific_statuses):
+    def get_leads_with_specific_statuses(self, specific_statuses, skip=0):
         logging.debug("Fetching all leads with specific statuses...")
         status_ids = ','.join(specific_statuses)
         base_url = f'{self.base_url}/opportunity/'
         lead_ids = []
-        limit = 100  # Fetch 100 records at a time as per the API's documentation
-        start_date = datetime.now() - timedelta(days=365)  # 1 year ago
-        end_date = datetime.now()
+        limit = 250  # Fetch 100 records at a time as per the API's documentation
+        start_date = datetime.utcnow() - timedelta(days=30)  # 4mos
+        end_date = datetime.utcnow()
         date_range = timedelta(days=1)  # Process leads 1 day at a time
 
         while start_date <= end_date:
+            skip = 0
             query = f'status_id:"{status_ids}" date_created:{{"{start_date.isoformat()}" TO "{(start_date + date_range).isoformat()}"}}'
-            skip = 0  # Start with the first record
 
             while True:
                 params = {'_limit': limit, '_skip': skip, 'query': query}
                 url = f'{base_url}'
                 response = requests.get(url, params=params, auth=self.auth)
                 self.log_response(response)
+
                 if response.status_code == 200:
                     opportunities = response.json()['data']
                     lead_ids.extend([opp['lead_id'] for opp in opportunities])

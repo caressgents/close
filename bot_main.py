@@ -136,16 +136,7 @@ def run_bot():
             user_ids = []
 
         # Fetch leads and process them
-        skip = 0
-        lead_ids = []
-        while True:
-            fetched_lead_ids = crm_api.get_leads_with_specific_statuses(specific_statuses, skip=skip)
-            if not fetched_lead_ids:
-                break
-            lead_ids.extend(fetched_lead_ids)
-
-            # Once the leads have been fetched, increment the `skip` counter by the number of leads
-            skip += len(fetched_lead_ids)
+        lead_ids = crm_api.get_leads_with_specific_statuses(specific_statuses)
 
         # Identify leads to process
         leads_to_process = []

@@ -259,43 +259,48 @@ class CRMAPI:
         else:
             logging.error(f"Failed to get SMS templates: {response.text}")
             return None
+    
+    def get_all_leads(self):
+        url = f'{self.base_url}/lead/'
+        response = requests.get(url, auth=self.auth)
+        if response.status_code == 200:
+            return response.json()['data']
+        else:
+            logging.error(f"Failed to get all leads: {response.text}")
+            return []
 
     def get_leads_with_specific_statuses(self, specific_statuses, skip=0):
         logging.debug("Fetching all leads with specific statuses...")
         status_ids = ','.join(specific_statuses)
         base_url = f'{self.base_url}/opportunity/'
         lead_ids = []
-        limit = 250  # Fetch 100 records at a time as per the API's documentation
-        start_date = datetime.utcnow() - timedelta(days=30)  # 4mos
+        limit = 250 # Fetch 100 records at a time as per the API's documentation
+        start_date = datetime.utcnow() - timedelta(days=30) # 4mos
         end_date = datetime.utcnow()
-        date_range = timedelta(days=1)  # Process leads 1 day at a time
-
+        date_range = timedelta(days=1) # Process leads 1 day at a time
         while start_date <= end_date:
             skip = 0
-            query = f'status_id:"{status_ids}" date_created:{{"{start_date.isoformat()}" TO "{(start_date + date_range).isoformat()}"}}'
-
+            query = f'status_id:\"{status_ids}\" date_created:{{\"{start_date.isoformat()}\" TO \"{(start_date + date_range).isoformat()}\"}}'
             while True:
                 params = {'_limit': limit, '_skip': skip, 'query': query}
                 url = f'{base_url}'
                 response = requests.get(url, params=params, auth=self.auth)
                 self.log_response(response)
-
                 if response.status_code == 200:
                     opportunities = response.json()['data']
-                    lead_ids.extend([opp['lead_id'] for opp in opportunities])
-
-                    if not response.json().get('has_more'):  # If there's no more data, stop fetching
-                        logging.info(
-                            f"Finished fetching leads for date range {start_date.isoformat()} to {(start_date + date_range).isoformat()}")
+                    logging.debug(f"Fetched {len(opportunities)} opportunities.")
+                    for opp in opportunities:
+                        # Check if the lead has an unanswered SMS
+                        if self.has_unanswered_sms(opp['lead_id']):
+                            lead_ids.append(opp['lead_id'])
+                            logging.debug(f"Found a lead with an unanswered SMS: {opp['lead_id']}")
+                    if not response.json().get('has_more'): # If there's no more data, stop fetching
                         break
                     else:
-                        skip += limit  # Otherwise, move to the next page of data
-                        logging.info(f"Moving to the next page of data (skip: {skip})")
+                        skip += limit # Otherwise, move to the next page of data
                 else:
                     logging.error(f"Failed to fetch leads with specific statuses: {response.text}")
                     break
-
             start_date += date_range
-
         logging.info(f"Fetched {len(lead_ids)} leads with the specific statuses.")
         return lead_ids

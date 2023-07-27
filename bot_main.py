@@ -107,7 +107,7 @@ def analyze_data_with_ai(data):
 def run_bot():
     logging.debug("Starting bot run...")
     logging.info("Running the bot...")
-    # Define the specific opportunity statuses we are interested in
+
     specific_statuses = ['stat_GKAEbEJMZeyQlU7IYFOpd6PorjXupqmcNmmSzQBbcVJ',
                          'stat_6cqDnnaff2GYLV52VABicFqCV6cat7pyJn7wCJALGWz']
 
@@ -115,81 +115,83 @@ def run_bot():
     lead_ids = crm_api.get_leads_with_specific_statuses(specific_statuses)
     logging.info(f"Fetched {len(lead_ids)} leads with the specific statuses.")
 
-    # ... Rest of the code ...
+    # Keep track of leads that have been processed
+    processed_leads = []
 
     while True:
         try:
-            logging.info("Fetching unresponded incoming SMS tasks...")
-            tasks = crm_api.get_unresponded_incoming_sms_tasks()
-            logging.info(f"Fetched {len(tasks)} tasks.")
             templates = crm_api.get_sms_templates()
             logging.info(f"Fetched {len(templates)} templates.")
             sent_counter = 0
             human_intervention_counter = 0
             failed_counter = 0
-            for task in tasks:
+
+            # Process all leads, not just the new incoming ones
+            for lead_id in lead_ids:
+                # Skip if lead has already been processed
+                if lead_id in processed_leads:
+                    continue
+
                 try:
-                    lead_id = task['lead_id']
                     logging.info(f"Processing lead {lead_id}...")
-                    lead_data = crm_api.get_lead_data(lead_id)
-                    if lead_data is None:
-                        logging.error(f"Failed to get lead data for lead {lead_id}")
-                        continue
-
-                    # Extract the first phone number of the first contact
-                    contacts = lead_data.get('contacts', [])
-                    if contacts and 'phones' in contacts[0] and contacts[0]['phones']:
-                        remote_phone = contacts[0]['phones'][0]['phone']
-                    else:
-                        logging.error(f"No phone number found for lead {lead_id}")
-                        continue
-
-                    lead_data['notes'] = crm_api.get_lead_notes(lead_id)
-
-                    hitch_type, trailer_size = extract_information(lead_data)
-                    if hitch_type is None or trailer_size is None:
-                        logging.info("Insufficient lead data for hitch type or trailer size")
-                        continue
-
                     incoming_sms = crm_api.get_latest_incoming_sms(lead_id)
                     outgoing_sms = crm_api.get_latest_outgoing_sms(lead_id)
 
+                    # Proceed only if there's a new incoming SMS that hasn't been responded to yet
                     if incoming_sms is not None and (outgoing_sms is None or incoming_sms["date_created"] > outgoing_sms["date_created"]):
+                        lead_data = crm_api.get_lead_data(lead_id)
+                        if lead_data is None:
+                            logging.error(f"Failed to get lead data for lead {lead_id}")
+                            continue
+
+                        # Extract the first phone number of the first contact
+                        contacts = lead_data.get('contacts', [])
+                        if contacts and 'phones' in contacts[0] and contacts[0]['phones']:
+                            remote_phone = contacts[0]['phones'][0]['phone']
+                        else:
+                            logging.error(f"No phone number found for lead {lead_id}")
+                            continue
+
+                        lead_data['notes'] = crm_api.get_lead_notes(lead_id)
+
+                        hitch_type, trailer_size = extract_information(lead_data)
+                        if hitch_type is None or trailer_size is None:
+                            logging.info("Insufficient lead data for hitch type or trailer size")
+                            continue
+
                         wall_height = get_wall_height(incoming_sms['text'])
                         if wall_height:
                             template = select_template(hitch_type, trailer_size, wall_height, templates)
                             if template:
-                                # Analyze the incoming SMS with AI before sending the message
                                 ai_response = analyze_data_with_ai(incoming_sms['text'])
                                 logging.info(f"AI response for incoming SMS: {ai_response}")
-                                if crm_api.send_message(lead_id, '', task['id'],
-                                                        template['id']):  # Removed `message` from the arguments
+                                if crm_api.send_message(lead_id, '', incoming_sms['id'], template['id']):
                                     sent_counter += 1
                                     logging.info(f"Successfully sent SMS template for lead {lead_id}")
                                 else:
-                                    crm_api.update_lead_status(lead_id,
-                                                               'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
+                                    crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')
                                     human_intervention_counter += 1
-                                    logging.info(
-                                        f"Updated status to 'Human Intervention' for lead {lead_id} due to SMS sending failure")
-
+                                    logging.info(f"Updated status to 'Human Intervention' for lead {lead_id} due to SMS sending failure")
                             else:
-                                crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
+                                crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')
                                 human_intervention_counter += 1
                                 logging.info(f"Updated status to 'Human Intervention' for lead {lead_id} due to no matching template")
                         else:
-                            crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')  # replace 'stat_X' with the actual status_id for 'Human Intervention'
+                            crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')
                             human_intervention_counter += 1
                             logging.info(f"Updated status to 'Human Intervention' for lead {lead_id} due to no valid wall height found in SMS")
-                    else:
-                        logging.error(f"No incoming SMS found for lead {lead_id}")
                 except Exception as e:
                     logging.exception(f"Failed to process lead {lead_id}")
                     failed_counter += 1
+
+                # Add lead to the list of processed leads
+                processed_leads.append(lead_id)
+
             logging.info(f"Sent {sent_counter} messages, marked {human_intervention_counter} leads for human intervention, failed to process {failed_counter} leads")
         except Exception as e:
             logging.exception("Failed to fetch tasks")
         time.sleep(5)
+
 
 
 @app.route('/start', methods=['POST'])

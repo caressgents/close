@@ -4,7 +4,6 @@ import logging
 from config import CRM_API_KEY, CRM_API_URL
 import phonenumbers
 import sys
-from datetime import datetime, timedelta
 
 # Define a Handler which writes INFO messages or higher to the sys.stderr (this could be your console)
 console = logging.StreamHandler(sys.stderr)
@@ -36,57 +35,23 @@ class CRMAPI:
         logging.info(f"Response status code: {response.status_code}")
         logging.info(f"Response content: RECEIVED")
 
-    def get_all_users(self):
-        logging.debug("Fetching all users")
-        url = f'{self.base_url}/user/'
-        response = requests.get(url, auth=self.auth)
-        self.log_response(response)
-        if response.status_code == 200:
-            users = response.json()
-            logging.info(f"Fetched all users.")
-            
-            return users
-        else:
-            logging.error(f"Failed to fetch users: {response.text}")
-            return None
-
-    def update_task_status(self, task_id, assigned_to):
-        logging.debug(f"Updating task status for task ID: {task_id}")
-        url = f'{self.base_url}/task/{task_id}/'
-        data = {
-            'is_complete': True,
-            'assigned_to': assigned_to
-        }
-        response = requests.put(url, json=data, auth=self.auth)
-        self.log_response(response)
-        if response.status_code == 200:
-            logging.info(f"Task {task_id} marked as complete.")
-            return True
-        else:
-            logging.error(f"Failed to update task status for task_id {task_id}: {response.text}")
-            return False
-
-    def get_unresponded_incoming_sms_tasks_for_lead(self, lead_id):
-        logging.debug(f"Fetching unresponded incoming SMS tasks for lead ID: {lead_id}")
+    def get_unresponded_incoming_sms_tasks(self):
+        logging.debug("Fetching unresponded incoming SMS tasks...")
         url = f'{self.base_url}/activity/sms/'
-        query = {'direction': 'inbound', 'lead_id': lead_id}
+        query = {'direction': 'inbound'}
         response = requests.get(url, params=query, auth=self.auth)
         self.log_response(response)
         if response.status_code == 200:
             all_incoming_sms = response.json()['data']
             unresponded_sms_tasks = []
-            with open('processed_tasks.txt', 'r') as file:
-                processed_tasks = file.read().splitlines()
             for sms in all_incoming_sms:
-                if sms['id'] in processed_tasks:
-                    continue
                 lead_id = sms['lead_id']
                 latest_outgoing_sms = self.get_latest_outgoing_sms(lead_id)
                 if latest_outgoing_sms is None or sms['date_created'] > latest_outgoing_sms['date_created']:
                     unresponded_sms_tasks.append(sms)
             return unresponded_sms_tasks
         else:
-            logging.error(f"Failed to get unresponded incoming SMS tasks for lead ID: {lead_id}: {response.text}")
+            logging.error(f"Failed to get unresponded incoming SMS tasks: {response.text}")
             return []
 
     def get_lead_data(self, lead_id):
@@ -220,17 +185,12 @@ class CRMAPI:
         data = {
             'is_complete': True
         }
-        try:
-            response = requests.put(url, json=data, auth=self.auth)
-            self.log_response(response)
-            if response.status_code == 200:
-                logging.info(f"Task {task_id} marked as complete.")
-                return True
-            else:
-                logging.error(f"Failed to mark task as complete for task_id {task_id}: {response.text}")
-                return False
-        except Exception as e:
-            logging.error(f"Failed to mark task as complete for task_id {task_id}: {str(e)}")
+        response = requests.put(url, json=data, auth=self.auth)
+        self.log_response(response)
+        if response.status_code == 200:
+            return True
+        else:
+            logging.error(f"Failed to mark task as complete for task_id {task_id}: {response.text}")
             return False
 
     def update_lead_status(self, lead_id, status_id):
@@ -259,48 +219,30 @@ class CRMAPI:
         else:
             logging.error(f"Failed to get SMS templates: {response.text}")
             return None
-    
-    def get_all_leads(self):
-        url = f'{self.base_url}/lead/'
-        response = requests.get(url, auth=self.auth)
-        if response.status_code == 200:
-            return response.json()['data']
-        else:
-            logging.error(f"Failed to get all leads: {response.text}")
-            return []
 
-    def get_leads_with_specific_statuses(self, specific_statuses, skip=0):
+    def get_leads_with_specific_statuses(self, specific_statuses):
         logging.debug("Fetching all leads with specific statuses...")
         status_ids = ','.join(specific_statuses)
         base_url = f'{self.base_url}/opportunity/'
         lead_ids = []
-        limit = 250 # Fetch 100 records at a time as per the API's documentation
-        start_date = datetime.utcnow() - timedelta(days=30) # 4mos
-        end_date = datetime.utcnow()
-        date_range = timedelta(days=1) # Process leads 1 day at a time
-        while start_date <= end_date:
-            skip = 0
-            query = f'status_id:\"{status_ids}\" date_created:{{\"{start_date.isoformat()}\" TO \"{(start_date + date_range).isoformat()}\"}}'
-            while True:
-                params = {'_limit': limit, '_skip': skip, 'query': query}
-                url = f'{base_url}'
-                response = requests.get(url, params=params, auth=self.auth)
-                self.log_response(response)
-                if response.status_code == 200:
-                    opportunities = response.json()['data']
-                    logging.debug(f"Fetched {len(opportunities)} opportunities.")
-                    for opp in opportunities:
-                        # Check if the lead has an unanswered SMS
-                        if self.has_unanswered_sms(opp['lead_id']):
-                            lead_ids.append(opp['lead_id'])
-                            logging.debug(f"Found a lead with an unanswered SMS: {opp['lead_id']}")
-                    if not response.json().get('has_more'): # If there's no more data, stop fetching
-                        break
-                    else:
-                        skip += limit # Otherwise, move to the next page of data
-                else:
-                    logging.error(f"Failed to fetch leads with specific statuses: {response.text}")
+        limit = 100  # Fetch 100 records at a time as per the API's documentation
+        skip = 0  # Start with the first record
+        while True:
+            query = {'status_id__in': status_ids, '_limit': limit, '_skip': skip}
+            url = f'{base_url}'
+            response = requests.get(url, params=query, auth=self.auth)
+            self.log_response(response)
+            if response.status_code == 200:
+                opportunities = response.json()['data']
+                lead_ids.extend([opp['lead_id'] for opp in opportunities])
+
+                if not response.json().get('has_more'):  # If there's no more data, stop fetching
                     break
-            start_date += date_range
+                else:
+                    skip += limit  # Otherwise, move to the next page of data
+            else:
+                logging.error(f"Failed to fetch leads with specific statuses: {response.text}")
+                break
+
         logging.info(f"Fetched {len(lead_ids)} leads with the specific statuses.")
         return lead_ids

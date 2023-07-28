@@ -1,5 +1,5 @@
 import time
-from threading import Thread
+from multiprocessing import Process, Event
 from flask import Flask, jsonify
 from config import CRM_PHONE_NUMBER
 from crm_api import CRMAPI
@@ -191,8 +191,6 @@ def run_bot():
         except Exception as e:
             logging.exception("Failed to fetch tasks")
         time.sleep(5)
-
-
 
 @app.route('/start', methods=['POST'])
 def start_bot():

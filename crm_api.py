@@ -225,7 +225,7 @@ class CRMAPI:
         status_ids = ','.join(specific_statuses)
         base_url = f'{self.base_url}/opportunity/'
         lead_ids = []
-        limit = 100  # Fetch 100 records at a time as per the API's documentation
+        limit = 250  # Fetch 250 records at a time as per the API's documentation
         skip = 0  # Start with the first record
         while True:
             query = {'status_id__in': status_ids, '_limit': limit, '_skip': skip}

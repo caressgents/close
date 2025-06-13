@@ -1,0 +1,50 @@
+2025-05-01 12:33:21,624 - INFO - werkzeug - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://64.176.199.155:5000
+2025-05-01 12:33:21,624 - INFO - werkzeug - [33mPress CTRL+C to quit[0m
+2025-05-01 12:33:21,625 - INFO - werkzeug -  * Restarting with stat
+2025-05-01 12:33:22,003 - WARNING - werkzeug -  * Debugger is active!
+2025-05-01 12:33:22,004 - INFO - werkzeug -  * Debugger PIN: 365-119-539
+2025-05-01 12:33:23,921 - INFO - werkzeug - 127.0.0.1 - - [01/May/2025 12:33:23] "POST /start HTTP/1.1" 200 -
+2025-05-01 12:39:54,389 - INFO - werkzeug - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://64.176.199.155:5000
+2025-05-01 12:39:54,389 - INFO - werkzeug - [33mPress CTRL+C to quit[0m
+2025-05-01 12:39:54,389 - INFO - werkzeug -  * Restarting with stat
+2025-05-01 12:39:54,641 - WARNING - werkzeug -  * Debugger is active!
+2025-05-01 12:39:54,641 - INFO - werkzeug -  * Debugger PIN: 365-119-539
+2025-05-01 12:39:57,044 - INFO - werkzeug - 127.0.0.1 - - [01/May/2025 12:39:57] "POST /start HTTP/1.1" 200 -
+2025-05-01 12:41:27,465 - INFO - werkzeug - 127.0.0.1 - - [01/May/2025 12:41:27] "POST /start HTTP/1.1" 200 -
+2025-05-01 12:46:05,205 - INFO - werkzeug - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://64.176.199.155:5000
+2025-05-01 12:46:05,205 - INFO - werkzeug - [33mPress CTRL+C to quit[0m
+2025-05-01 12:46:05,205 - INFO - werkzeug -  * Restarting with stat
+2025-05-01 12:46:05,458 - WARNING - werkzeug -  * Debugger is active!
+2025-05-01 12:46:05,459 - INFO - werkzeug -  * Debugger PIN: 365-119-539
+2025-05-01 12:46:08,353 - INFO - werkzeug - 127.0.0.1 - - [01/May/2025 12:46:08] "POST /start HTTP/1.1" 200 -
+2025-05-01 12:50:13,648 - INFO - werkzeug -  * Detected change in '/root/close/bot_main.py', reloading
+2025-05-01 12:50:13,697 - INFO - werkzeug -  * Restarting with stat
+2025-05-01 12:50:13,961 - WARNING - werkzeug -  * Debugger is active!
+2025-05-01 12:50:13,962 - INFO - werkzeug -  * Debugger PIN: 365-119-539
+2025-05-01 12:50:19,633 - INFO - werkzeug - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://64.176.199.155:5000
+2025-05-01 12:50:19,633 - INFO - werkzeug - [33mPress CTRL+C to quit[0m
+2025-05-01 12:50:19,634 - INFO - werkzeug -  * Restarting with stat
+2025-05-01 12:50:19,882 - WARNING - werkzeug -  * Debugger is active!
+2025-05-01 12:50:19,883 - INFO - werkzeug -  * Debugger PIN: 365-119-539
+2025-05-01 12:50:21,703 - INFO - werkzeug - 127.0.0.1 - - [01/May/2025 12:50:21] "POST /start HTTP/1.1" 200 -
+2025-05-01 13:31:09,721 - INFO - werkzeug - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://64.176.199.155:5000
+2025-05-01 13:31:09,721 - INFO - werkzeug - [33mPress CTRL+C to quit[0m
+2025-05-01 13:31:09,721 - INFO - werkzeug -  * Restarting with stat
+2025-05-01 13:31:09,973 - WARNING - werkzeug -  * Debugger is active!
+2025-05-01 13:31:09,974 - INFO - werkzeug -  * Debugger PIN: 365-119-539
+2025-05-01 13:31:12,285 - INFO - werkzeug - 127.0.0.1 - - [01/May/2025 13:31:12] "POST /start HTTP/1.1" 200 -

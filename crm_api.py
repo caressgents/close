@@ -1,248 +1,189 @@
+# crm_api.py
+
 import requests
 from requests.auth import HTTPBasicAuth
 import logging
-from config import CRM_API_KEY, CRM_API_URL
-import phonenumbers
-import sys
+import time
+from config import CRM_API_KEY, CRM_API_URL, CRM_PHONE_NUMBER
+from datetime import datetime, timedelta
 
-# Define a Handler which writes INFO messages or higher to the sys.stderr (this could be your console)
-console = logging.StreamHandler(sys.stderr)
-console.setLevel(logging.INFO)
-
-# Define a Handler for the log file
-file_handler = logging.FileHandler('app.log')
-file_handler.setLevel(logging.DEBUG)
-
-# Set a format which is simpler for console use
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')
-
-# Tell the handler to use this format
-console.setFormatter(formatter)
-file_handler.setFormatter(formatter)
-
-logging.basicConfig(
-    level=logging.DEBUG,
-    handlers=[file_handler, console]
-)
-
+logger = logging.getLogger("crm_api")
 
 class CRMAPI:
     def __init__(self):
-        self.auth = HTTPBasicAuth(CRM_API_KEY, ' ')
+        self.auth = HTTPBasicAuth(CRM_API_KEY, "")
         self.base_url = CRM_API_URL
 
-    def log_response(self, response):
-        logging.info(f"Response status code: {response.status_code}")
-        logging.info(f"Response content: RECEIVED")
+    def iter_open_sms_tasks(self, limit=100):
+        """
+        Yield (tasks, total_results) pages of open incoming_sms tasks
+        so the bot processes every inbox item exactly once.
+        """
+        skip = 0
+        total = None
+        while True:
+            params = {
+                "_limit": limit,
+                "_skip": skip,
+                "is_complete": "false",
+                "_type": "incoming_sms"
+            }
+            url = f"{self.base_url}/task/"
+            resp = requests.get(url, params=params, auth=self.auth, timeout=30)
+            resp.raise_for_status()
+            body = resp.json()
+            tasks = body.get("data", [])
+            if total is None:
+                total = body.get("total_results", len(tasks))
+            yield tasks, total
+            if not body.get("has_more", False):
+                break
+            skip += limit
 
-    def get_unresponded_incoming_sms_tasks(self):
-        logging.debug("Fetching unresponded incoming SMS tasks...")
-        url = f'{self.base_url}/activity/sms/'
-        query = {'direction': 'inbound'}
-        response = requests.get(url, params=query, auth=self.auth)
-        self.log_response(response)
-        if response.status_code == 200:
-            all_incoming_sms = response.json()['data']
-            unresponded_sms_tasks = []
-            for sms in all_incoming_sms:
-                lead_id = sms['lead_id']
-                latest_outgoing_sms = self.get_latest_outgoing_sms(lead_id)
-                if latest_outgoing_sms is None or sms['date_created'] > latest_outgoing_sms['date_created']:
-                    unresponded_sms_tasks.append(sms)
-            return unresponded_sms_tasks
-        else:
-            logging.error(f"Failed to get unresponded incoming SMS tasks: {response.text}")
-            return []
+    def get_sms_activity(self, sms_id):
+        """Fetch a single SMS activity by its ID."""
+        url = f"{self.base_url}/activity/sms/{sms_id}/"
+        resp = requests.get(url, auth=self.auth, timeout=15)
+        if resp.status_code == 200:
+            return resp.json()
+        return None
 
-    def get_lead_data(self, lead_id):
-        logging.debug(f"Fetching lead data for lead ID: {lead_id}")
-        logging.info(f"Getting lead data for lead_id {lead_id}")
-        url = f'{self.base_url}/lead/{lead_id}'
-        response = requests.get(url, auth=self.auth)
-        self.log_response(response)
-        if response.status_code == 200:
-            lead_data = response.json()
-            logging.info(f"Received lead data for lead_id {lead_id}")
-            lead_data['contacts'] = self.get_contacts(lead_id)
-            return lead_data
-        else:
-            logging.error(f"Failed to get lead data for lead_id {lead_id}: {response.text}")
-            return None
-
-    def get_contacts(self, lead_id):
-        logging.debug(f"Fetching contacts for lead ID: {lead_id}")
-        logging.info(f"Getting contacts for lead_id {lead_id}")
-        url = f'{self.base_url}/contact/?lead_id={lead_id}'
-        response = requests.get(url, auth=self.auth)
-        self.log_response(response)
-        if response.status_code == 200:
-            return response.json()['data']
-        else:
-            logging.error(f"Failed to get contacts for lead_id {lead_id}: {response.text}")
-            return None
-
-    def get_lead_notes(self, lead_id):
-        logging.debug(f"Fetching lead notes for lead ID: {lead_id}")
-        logging.info(f"Getting lead notes for lead_id {lead_id}")
-        url = f'{self.base_url}/activity/note/?lead_id={lead_id}'
-        response = requests.get(url, auth=self.auth)
-        self.log_response(response)
-        if response.status_code == 200:
-            return response.json()['data']
-        else:
-            logging.error(f"Failed to get lead notes for lead_id {lead_id}: {response.text}")
-            return None
-
-    def get_latest_incoming_sms(self, lead_id):
-        logging.debug(f"Fetching latest incoming SMS for lead ID: {lead_id}")
-        try:
-            logging.info(f"Getting latest incoming SMS for lead_id {lead_id}")
-            url = f"{self.base_url}/activity/sms/?lead_id={lead_id}"
-            response = requests.get(url, auth=self.auth)
-            if response.status_code == 200:
-                activities = response.json()["data"]
-                incoming_sms = [sms for sms in activities if sms["direction"] == "inbound"]
-                if incoming_sms:
-                    latest_sms = max(incoming_sms, key=lambda sms: sms["date_created"])
-                    return latest_sms
-            else:
-                logging.error(f"Failed to get latest incoming SMS for lead_id {lead_id}: {response.status_code} {response.text}")
-                return None
-        except Exception as e:
-            logging.exception(f"Failed to get latest incoming SMS for lead_id {lead_id}")
-            return None
-
-    def get_latest_outgoing_sms(self, lead_id):
-        logging.debug(f"Fetching latest outgoing SMS for lead ID: {lead_id}")
-        try:
-            logging.info(f"Getting latest outgoing SMS for lead_id {lead_id}")
-            url = f"{self.base_url}/activity/sms/?lead_id={lead_id}"
-            response = requests.get(url, auth=self.auth)
-            if response.status_code == 200:
-                activities = response.json()["data"]
-                outgoing_sms = [sms for sms in activities if sms["direction"] == "outbound"]
-                if outgoing_sms:
-                    latest_sms = max(outgoing_sms, key=lambda sms: sms["date_created"])
-                    return latest_sms
-            else:
-                logging.error(f"Failed to get latest outgoing SMS for lead_id {lead_id}: {response.status_code} {response.text}")
-                return None
-        except Exception as e:
-            logging.exception(f"Failed to get latest outgoing SMS for lead_id {lead_id}")
-            return None
-
-    def send_message(self, lead_id, message, task_id, template_id):
-        logging.debug(f"Preparing to send message for lead ID: {lead_id}")
-        logging.info(f"Attempting to send message for lead_id {lead_id}")
-        # Get lead data
-        lead_data = self.get_lead_data(lead_id)
-        if not lead_data:
-            logging.error(f"No data for lead_id {lead_id}")
-            return False
-
-        # Get remote phone number
-        remote_phone = lead_data['contacts'][0]['phones'][0]['phone']
-
-        # Log the remote_phone value
-        logging.info(f"Remote phone number for lead_id {lead_id}: {remote_phone}")
-
-        # Parse phone number
-        try:
-            parsed_phone = phonenumbers.parse(remote_phone, 'US')
-        except phonenumbers.phonenumberutil.NumberParseException as e:
-            logging.error(f"Failed to parse phone number for lead_id {lead_id}: {e}")
-            return False
-
-        # Prepare data
-        data = {
-            'lead_id': lead_id,
-            'status': 'outbox',
-            'direction': 'outbound',
-            'related_to': task_id,
-            'template_id': template_id,
-            'local_phone': '+19042994707',
-            'remote_phone': remote_phone
+    def find_task_for_sms(self, sms_id, lead_id):
+        """Locate the open incoming_sms task for this SMS."""
+        url = f"{self.base_url}/task/"
+        params = {
+            "_limit": 100,
+            "is_complete": "false",
+            "_type": "incoming_sms",
+            "lead_id": lead_id
         }
-
-        logging.info(f"Prepared data for sending message: {data}")
-
-        # Send the request to CRM API
-        url = f'{self.base_url}/activity/sms/'
-        response = requests.post(url, json=data, auth=self.auth)
-        self.log_response(response)
-
-        if response.status_code in {200, 201}:
-            logging.info(f"Message sent successfully for lead_id {lead_id}")
-            return True
-        else:
-            logging.error(f"Failed to send message for lead_id {lead_id}: {response.text}")
-            return False
+        try:
+            resp = requests.get(url, params=params, auth=self.auth, timeout=15)
+            if resp.status_code == 200:
+                for task in resp.json().get("data", []):
+                    if task.get("object_id") == sms_id:
+                        return task.get("id")
+        except Exception:
+            logger.exception(f"Error finding task for SMS {sms_id}")
+        return None
 
     def mark_task_as_complete(self, task_id):
-        logging.debug(f"Marking task as complete for task ID: {task_id}")
-        logging.info(f"Marking task as complete for task_id {task_id}")
-        url = f'{self.base_url}/task/{task_id}'
-        data = {
-            'is_complete': True
-        }
-        response = requests.put(url, json=data, auth=self.auth)
-        self.log_response(response)
-        if response.status_code == 200:
-            return True
-        else:
-            logging.error(f"Failed to mark task as complete for task_id {task_id}: {response.text}")
+        url = f"{self.base_url}/task/{task_id}/"
+        try:
+            resp = requests.put(
+                url,
+                json={"is_complete": True},
+                auth=self.auth,
+                timeout=15
+            )
+            logger.info(f"✅ Task {task_id} marked complete ({resp.status_code})")
+        except Exception:
+            logger.exception(f"Error marking task {task_id} complete")
+
+    def get_lead_id_from_contact(self, contact_id):
+        url = f"{self.base_url}/contact/{contact_id}/"
+        resp = requests.get(url, auth=self.auth, timeout=10)
+        if resp.status_code == 200:
+            return resp.json().get("lead_id")
+        return None
+
+    def get_sms_thread_for_contact(self, lead_id, contact_id):
+        url = f"{self.base_url}/activity/sms/"
+        resp = requests.get(
+            url,
+            params={"lead_id": lead_id, "contact_id": contact_id},
+            auth=self.auth,
+            timeout=15
+        )
+        if resp.status_code == 200:
+            return resp.json().get("data", [])
+        return []
+
+    def get_contact_phone(self, contact_id):
+        url = f"{self.base_url}/contact/{contact_id}/"
+        try:
+            resp = requests.get(url, auth=self.auth, timeout=10)
+            if resp.status_code == 200:
+                phones = resp.json().get("phones", [])
+                if phones:
+                    return phones[0].get("phone")
+        except Exception:
+            logger.error(f"Error fetching phone for contact {contact_id}")
+        return None
+
+    def get_lead_name_from_contact(self, contact_id):
+        url = f"{self.base_url}/contact/{contact_id}/"
+        resp = requests.get(url, auth=self.auth, timeout=10)
+        if resp.status_code == 200:
+            lead_id = resp.json().get("lead_id")
+            if lead_id:
+                lead_resp = requests.get(
+                    f"{self.base_url}/lead/{lead_id}/",
+                    auth=self.auth,
+                    timeout=10
+                )
+                if lead_resp.status_code == 200:
+                    return lead_resp.json().get("display_name")
+        return "Unknown Lead"
+
+    def send_sms_to_lead(self, lead_id, contact_id, text):
+        """
+        Send an SMS via Close.com API with all required fields.
+        """
+        try:
+            remote_phone = self.get_contact_phone(contact_id)
+            if not remote_phone:
+                logger.error(f"No remote_phone for contact {contact_id}")
+                return False
+
+            payload = {
+                "lead_id": lead_id,
+                "contact_id": contact_id,
+                "local_phone": CRM_PHONE_NUMBER,
+                "remote_phone": remote_phone,
+                "text": text,
+                "status": "outbox"
+            }
+            resp = requests.post(
+                f"{self.base_url}/activity/sms/",
+                json=payload,
+                auth=self.auth,
+                timeout=15
+            )
+            if 200 <= resp.status_code < 300:
+                logger.info(f"✅ SMS queued (status={resp.status_code}) for contact {contact_id}")
+                return True
+            logger.error(f"❌ SMS failed: {resp.status_code} {resp.text}")
+            return False
+        except Exception:
+            logger.exception(f"Exception sending SMS to {contact_id}")
             return False
 
-    def update_lead_status(self, lead_id, status_id):
-        logging.debug(f"Updating lead status for lead ID: {lead_id}")
-        logging.info(f"Updating lead status for lead_id {lead_id}")
-        url = f'{self.base_url}/lead/{lead_id}'
-        data = {
-            'status_id': status_id
-        }
-        response = requests.put(url, json=data, auth=self.auth)
-        self.log_response(response)
-        if response.status_code == 200:
-            return True
-        else:
-            logging.error(f"Failed to update lead status for lead_id {lead_id}: {response.text}")
-            return False
+    #
+    # ─── STUBS FOR QUICK-QUOTE FIELDS ───────────────────────────────────
+    #
 
-    def get_sms_templates(self):
-        logging.debug("Fetching SMS templates...")
-        logging.info("Getting SMS templates")
-        url = f'{self.base_url}/sms_template/'
-        response = requests.get(url, auth=self.auth)
-        self.log_response(response)
-        if response.status_code == 200:
-            return response.json()['data']
-        else:
-            logging.error(f"Failed to get SMS templates: {response.text}")
-            return None
+    def get_lead_custom_fields(self, lead_id):
+        """
+        Stub: return a dict of custom fields if you have a “quick quote” stored.
+        Example return value:
+            { "size": "7x16x4", "wall_height": "4", "axles": "16K" }
+        If none found, return None or {}.
+        """
+        return None
 
-    def get_leads_with_specific_statuses(self, specific_statuses):
-        logging.debug("Fetching all leads with specific statuses...")
-        status_ids = ','.join(specific_statuses)
-        base_url = f'{self.base_url}/opportunity/'
-        lead_ids = []
-        limit = 250  # Fetch 250 records at a time as per the API's documentation
-        skip = 0  # Start with the first record
-        while True:
-            query = {'status_id__in': status_ids, '_limit': limit, '_skip': skip}
-            url = f'{base_url}'
-            response = requests.get(url, params=query, auth=self.auth)
-            self.log_response(response)
-            if response.status_code == 200:
-                opportunities = response.json()['data']
-                lead_ids.extend([opp['lead_id'] for opp in opportunities])
+    def get_latest_quote_note(self, lead_id):
+        """
+        Stub: return the text of the latest “Quick Quote” note from CRM notes.
+        If none found, return None.
+        """
+        return None
 
-                if not response.json().get('has_more'):  # If there's no more data, stop fetching
-                    break
-                else:
-                    skip += limit  # Otherwise, move to the next page of data
-            else:
-                logging.error(f"Failed to fetch leads with specific statuses: {response.text}")
-                break
-
-        logging.info(f"Fetched {len(lead_ids)} leads with the specific statuses.")
-        return lead_ids
+    def flag_lead_for_review(self, lead_id, reason="Inappropriate conversation"):
+        url = f"{self.base_url}/lead/{lead_id}/"
+        try:
+            data = {"note": reason}
+            requests.put(url, json=data, auth=self.auth)
+            logger.info(f"Lead {lead_id} flagged for review: {reason}")
+        except Exception as e:
+            logger.exception(f"Error flagging lead {lead_id}")

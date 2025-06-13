@@ -1,0 +1,22 @@
+[33md3f998c7[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m HEAD@{0}: filter-branch: rewrite
+[33ma8286de0[m HEAD@{1}: commit: Remove .env from tracking and update gitignore
+[33mb0c3c07c[m HEAD@{2}: commit: Ignore .env file for security
+[33m64c6dfff[m HEAD@{3}: reset: moving to origin/main
+[33mf18ecd0c[m HEAD@{4}: checkout: moving from main to main
+[33mf18ecd0c[m HEAD@{5}: commit: Ignore .env file for security
+[33mb134bd7d[m HEAD@{6}: reset: moving to HEAD
+[33mb134bd7d[m HEAD@{7}: reset: moving to HEAD~1
+[33m62900093[m HEAD@{8}: commit: Ignore .env file for security
+[33mb134bd7d[m HEAD@{9}: reset: moving to HEAD~1
+[33m3e82603f[m HEAD@{10}: commit: Ignore .env file for security
+[33mb134bd7d[m HEAD@{11}: rebase (abort): updating HEAD
+[33mb134bd7d[m HEAD@{12}: rebase (abort): updating HEAD
+[33m19f2a8a6[m HEAD@{13}: commit: Ignore .env file for security
+[33mb134bd7d[m HEAD@{14}: checkout: moving from 92c549261063eeda75d112f1ca7eb253e77f8c50 to main
+[33m92c54926[m HEAD@{15}: commit: Ignore .env file for security
+[33m64c6dfff[m HEAD@{16}: pull origin main --rebase (start): checkout 64c6dfff383260cf1db956cc05c00f1760ba4f77
+[33mb134bd7d[m HEAD@{17}: commit: Stop tracking .env file containing sensitive data
+[33mace76723[m HEAD@{18}: commit: Add .env to gitignore to exclude secrets
+[33m6e66f18f[m HEAD@{19}: commit: Stable working version: added moderation protection, improved natural conversation handling, updated system prompts.
+[33mfb25176a[m[33m ([m[1;31mclosebot2/main[m[33m)[m HEAD@{20}: reset: moving to HEAD~1
+[33m64c6dfff[m HEAD@{21}: commit: Stable bot version: updated moderation & natural conversation prompts

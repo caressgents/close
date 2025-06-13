@@ -1,221 +1,393 @@
-import time
-from multiprocessing import Process, Event
-from flask import Flask, jsonify
-from config import CRM_PHONE_NUMBER
-from crm_api import CRMAPI
-import re
+# bot_main.py
+
 import logging
-import os
-import openai
 import sys
+import time
+import math
+import re
+from multiprocessing import Process
+from flask import Flask, jsonify, request
+import os
+import csv
+from datetime import datetime
+from crm_api import CRMAPI
+from openai_api import generate_response
+from config import CRM_PHONE_NUMBER
+from openai_api import moderate_content
 
-# Define a Handler which writes INFO messages or higher to the sys.stderr (this could be your console)
-console = logging.StreamHandler(sys.stderr)
+
+# === Logging Setup (root logger) ===
+console = logging.StreamHandler(sys.stdout)
 console.setLevel(logging.INFO)
-
-# Define a Handler for the log file
-file_handler = logging.FileHandler('app.log')
+file_handler = logging.FileHandler("app.log")
 file_handler.setLevel(logging.DEBUG)
-
-# Set a format which is simpler for console use
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')
-
-# Tell the handler to use this format
+formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
 console.setFormatter(formatter)
 file_handler.setFormatter(formatter)
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    handlers=[file_handler, console]
-)
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.DEBUG)
+if not any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers):
+    root_logger.addHandler(console)
+    root_logger.addHandler(file_handler)
 
+logger = logging.getLogger(__name__)
 app = Flask(__name__)
-bot_thread = None
-crm_api = CRMAPI()
+crm = CRMAPI()
 
-# Initialize OpenAI with your API key
-openai.api_key = os.getenv("OPENAI_API_KEY")
+CSV_PATH = "ai_sms_log.csv"
+FAILURE_CSV = "ai_sms_failures.csv"
+PROCESSED_IDS_FILE = "processed_ids.txt"
+PROMPT_PATH = "system_prompt.txt"
+OPT_OUT = [
+    "stop", "unsubscribe", "opt out", "no more texts",
+    "wrong number", "already bought", "just bought one",
+    "bought one", "purchased one", "already purchased"
+]
 
-def get_wall_height(sms_text):
-    logging.info(f"Analyzing SMS text for wall height: {sms_text}")
-    prompt = f"In the following SMS text, a customer is discussing the wall height of a trailer they're interested in. The height will be a number somewhere in their response, either 2, 3, or 4, possibly 2', 4', 5' and will be in their natural language or conversation, here is the text you need to analyze and extract the single digit wall height from: \"{sms_text}\". Could you tell me the wall height the customer is referring to? YOU MUST respond with a single numerical digit only, no additional text or explanation."
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant and follow directions perfectly"},
-            {"role": "user", "content": prompt},
-        ]
+# Ensure success CSV header
+if not os.path.isfile(CSV_PATH):
+    with open(CSV_PATH, "w", newline="") as f:
+        csv.writer(f).writerow([
+            "timestamp", "source", "lead_name", "message_id", "message_text"
+        ])
+
+# Ensure failure CSV header
+if not os.path.isfile(FAILURE_CSV):
+    with open(FAILURE_CSV, "w", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=["timestamp", "source", "lead_name", "message_id", "message_text", "status"]
+        )
+        writer.writeheader()
+
+def load_system_prompt(path):
+    try:
+        return open(path).read()
+    except Exception as e:
+        logger.error(f"❌ Failed to load system prompt: {e}")
+        return ""
+
+SYSTEM_PROMPT = load_system_prompt(PROMPT_PATH)
+
+# Load processed SMS IDs
+if os.path.exists(PROCESSED_IDS_FILE):
+    processed_sms = set(open(PROCESSED_IDS_FILE).read().split())
+else:
+    processed_sms = set()
+
+def save_processed_id(mid):
+    processed_sms.add(mid)
+    with open(PROCESSED_IDS_FILE, "a") as f:
+        f.write(mid + "\n")
+
+def process_sms():
+    logger.info("Checking for new SMS tasks in CRM Inbox…")
+    responded_phones = set()
+    summary = {"sent": 0, "opt_out": 0, "skipped": 0, "failed": 0}
+
+    for page_num, (tasks, total) in enumerate(crm.iter_open_sms_tasks(limit=100), start=1):
+        batch_size = len(tasks)
+        total_pages = math.ceil(total / 100)
+        logger.info(
+            f"🔄 Processing batch {page_num}/{total_pages} of {total} tasks ({batch_size} in this batch)"
+        )
+
+        for idx, task in enumerate(tasks, start=1):
+            task_id = task.get("id")
+            sms_id  = task.get("object_id")
+            if not sms_id or sms_id in processed_sms:
+                continue
+
+            sms = crm.get_sms_activity(sms_id)
+            if not sms:
+                logger.warning(
+                    f"[batch {page_num} msg {idx}/{batch_size}] ❌ Couldn’t fetch SMS {sms_id}, skipping"
+                )
+                processed_sms.add(sms_id)
+                continue
+
+            mid = sms_id
+            cid = sms.get("contact_id")
+            txt = (sms.get("text") or "").strip()
+            if moderate_content(txt):
+                crm.send_sms_to_lead(lead_id, cid, "We only handle serious trailer inquiries. Call 888-643-7498 for assistance.")
+                crm.mark_task_as_complete(task_id)
+                save_processed_id(mid)
+                logger.warning(f"Inappropriate content detected from {lead_name}, conversation terminated.")
+                continue  # immediately skip further processing
+            lead_id = sms.get("lead_id")
+            remote_phone = crm.get_contact_phone(cid) if cid else None
+
+            # Dedupe within this run
+            if remote_phone and remote_phone in responded_phones:
+                logger.info(
+                    f"[batch {page_num} msg {idx}/{batch_size}] ⚠️ Already texted {remote_phone}, skipping {mid}"
+                )
+                crm.mark_task_as_complete(task_id)
+                summary["skipped"] += 1
+                save_processed_id(mid)
+                continue
+
+            # Quick filters
+            if not cid:
+                logger.info(
+                    f"[batch {page_num} msg {idx}/{batch_size}] ⚠️ Missing contact, skipping {mid}"
+                )
+                crm.mark_task_as_complete(task_id)
+                summary["skipped"] += 1
+                save_processed_id(mid)
+                continue
+            if any(opt in txt.lower() for opt in OPT_OUT):
+                logger.info(
+                    f"[batch {page_num} msg {idx}/{batch_size}] ⚠️ Opt-out for {mid}: {txt}"
+                )
+                crm.mark_task_as_complete(task_id)
+                summary["opt_out"] += 1
+                save_processed_id(mid)
+                continue
+
+            thread = crm.get_sms_thread_for_contact(lead_id, cid)
+            if not thread:
+                logger.info(
+                    f"[batch {page_num} msg {idx}/{batch_size}] ⚠️ No thread, skipping {mid}"
+                )
+                crm.mark_task_as_complete(task_id)
+                summary["skipped"] += 1
+                save_processed_id(mid)
+                continue
+
+            last = sorted(
+                thread, key=lambda m: m.get("activity_at") or m.get("date_created")
+            )[-1]
+            if last.get("direction") == "outbound":
+                logger.info(
+                    f"[batch {page_num} msg {idx}/{batch_size}] ✅ Already responded, marking done {mid}"
+                )
+                crm.mark_task_as_complete(task_id)
+                summary["skipped"] += 1
+                save_processed_id(mid)
+                continue
+
+            # Build history
+            history = "\n".join(
+                f"{'Lead' if m['direction']=='inbound' else 'Agent'}: {(m.get('text') or '').strip()}"
+                for m in sorted(
+                    thread, key=lambda m: m.get("activity_at") or m.get("date_created")
+                )
+                if m.get("text")
+            )
+
+            # ── FETCH ANY “QUICK QUOTE” DATA ───────────────────────────────────
+            known_quote = crm.get_lead_custom_fields(lead_id)
+            if not known_quote or not known_quote.get("size"):
+                quote_note = crm.get_latest_quote_note(lead_id)
+            else:
+                quote_note = None
+
+            # Build a short “quote_context” string
+            quote_context = ""
+            if known_quote and known_quote.get("size"):
+                size_val    = known_quote.get("size")
+                walls_val   = known_quote.get("wall_height")
+                axles_val   = known_quote.get("axles")
+                missing = []
+                if not walls_val: missing.append("wall height")
+                if not axles_val: missing.append("axles")
+                if missing:
+                    quote_context = (
+                        f"Quick Quote Info – Size: {size_val}, Walls: {walls_val or 'unknown'}. "
+                        f"Missing: {', '.join(missing)}."
+                    )
+                else:
+                    quote_context = (
+                        f"Quick Quote Info – Size: {size_val}, Walls: {walls_val}, Axles: {axles_val}."
+                    )
+            elif quote_note:
+                quote_context = f"Quick Quote Form: {quote_note.strip()}"
+
+            # ── CLASSIFICATION ───────────────────────────────────────────────────
+            cls_prompt = (
+                "Here is the SMS thread:\n"
+                f"{history}\n\n"
+                "Classify the *last* inbound message as exactly one of:\n"
+                " • WRONG_NUMBER  – customer said wrong number\n"
+                " • ACK           – just a thank-you/ok/anytime, no question\n"
+                " • PROCEED       – asking for pricing, details, next steps\n"
+                " • OTHER         – anything else\n"
+            )
+            try:
+                cls = generate_response(SYSTEM_PROMPT, cls_prompt).strip().upper()
+            except Exception as e:
+                logger.error(
+                    f"[batch {page_num} msg {idx}/{batch_size}] ❌ Classification error: {e}"
+                )
+                cls = "PROCEED"
+
+            # SKIP wrong numbers entirely
+            if cls == "WRONG_NUMBER":
+                apology = "Sorry about that mix-up—thanks for your time!"
+                crm.send_sms_to_lead(lead_id, cid, apology)
+                crm.mark_task_as_complete(task_id)
+                summary["sent"] += 1
+                save_processed_id(mid)
+                if remote_phone:
+                    responded_phones.add(remote_phone)
+                continue
+
+            # ACK simple acknowledgements
+            if cls == "ACK":
+                ack_prompt = (
+                    "You are a friendly assistant. Reply *briefly* to the last customer message "
+                    "with a short acknowledgment like “No problem!” or “Glad to help!”"
+                )
+                ack = generate_response(SYSTEM_PROMPT, ack_prompt).strip()
+                crm.send_sms_to_lead(lead_id, cid, ack)
+                crm.mark_task_as_complete(task_id)
+                summary["sent"] += 1
+                save_processed_id(mid)
+                if remote_phone:
+                    responded_phones.add(remote_phone)
+                continue
+
+            # APOLOGIZE for mis-communications
+            if cls == "APOLOGIZE":
+                apology = "Sorry about that mix-up—thanks for your time!"
+                crm.send_sms_to_lead(lead_id, cid, apology)
+                crm.mark_task_as_complete(task_id)
+                summary["sent"] += 1
+                save_processed_id(mid)
+                if remote_phone:
+                    responded_phones.add(remote_phone)
+                continue
+
+            # ── PROCEED or OTHER → full sales flow ────────────────────────────
+            lead_name = crm.get_lead_name_from_contact(cid) or "there"
+            first_name = lead_name.split()[0] if lead_name != "Unknown Lead" else "there"
+
+            ask_images = bool(re.search(r'\b(pic|photo|image)s?\b.*\?', txt.lower()))
+            image_line = (
+                "You can’t send pictures via this line. "
+                "Recommend they call 888-643-7498 to see photos or visit our gallery at www.topshelftrailers.com. "
+            ) if ask_images else ""
+
+            if quote_context:
+                sales_prompt = (
+                    f"{quote_context}\n\n"
+                    f"Lead First Name: {first_name}\n"
+                    f"Recent Conversation History (read carefully to respond naturally):\n{history}\n\n"
+                    f"{image_line}"
+                    "Respond conversationally, naturally, and avoid robotic replies. Clearly encourage calling 888-643-7498 to proceed."
+                )
+            else:
+                sales_prompt = (
+                    f"Lead First Name: {first_name}\n"
+                    f"Recent Conversation History (read carefully to respond naturally):\n{history}\n\n"
+                    f"{image_line}"
+                    "Respond conversationally, naturally, and avoid robotic replies. Clearly encourage calling 888-643-7498 to proceed."
+                )
+
+            logger.info(
+                f"[batch {page_num} msg {idx}/{batch_size}] 🧠 Generating sales reply for {mid}"
+            )
+            try:
+                reply = generate_response(SYSTEM_PROMPT, sales_prompt).strip()
+            except Exception as e:
+                logger.error(
+                    f"[batch {page_num} msg {idx}/{batch_size}] ❌ Error generating reply: {e}"
+                )
+                summary["failed"] += 1
+                save_processed_id(mid)
+                continue
+
+            if not reply:
+                logger.info(
+                    f"[batch {page_num} msg {idx}/{batch_size}] ⚠️ Empty reply, skipping {mid}"
+                )
+                summary["failed"] += 1
+                save_processed_id(mid)
+                continue
+
+            logger.info(f"[batch {page_num} msg {idx}/{batch_size}] 📨 Reply: {reply}")
+            sent = crm.send_sms_to_lead(lead_id, cid, reply)
+            if sent:
+                crm.mark_task_as_complete(task_id)
+                save_processed_id(mid)
+                if remote_phone:
+                    responded_phones.add(remote_phone)
+                with open(CSV_PATH, "a", newline="") as f:
+                    csv.writer(f).writerow([
+                        datetime.utcnow().isoformat(),
+                        "bot_main",
+                        lead_name,
+                        mid,
+                        reply
+                    ])
+                summary["sent"] += 1
+                logger.info(
+                    f"[batch {page_num} msg {idx}/{batch_size}] ✅ Sent SMS to {lead_name}"
+                )
+            else:
+                failure_row = {
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "source": "bot_main",
+                    "lead_name": lead_name,
+                    "message_id": mid,
+                    "message_text": reply,
+                    "status": "FAILED"
+                }
+                with open(FAILURE_CSV, "a", newline="") as ff:
+                    writer = csv.DictWriter(
+                        ff,
+                        fieldnames=["timestamp", "source", "lead_name", "message_id", "message_text", "status"]
+                    )
+                    writer.writerow(failure_row)
+
+                logger.warning(
+                    f"[batch {page_num} msg {idx}/{batch_size}] 🛑 SMS failed for {mid}"
+                )
+                summary["failed"] += 1
+
+    logger.info(
+        f"🏁 Finished: Sent {summary['sent']} | Opt-out {summary['opt_out']} | "
+        f"Skipped {summary['skipped']} | Failed {summary['failed']}"
     )
-    wall_height_response = response['choices'][0]['message']['content'].strip()
-    # Extract just the number from the AI's response
-    match = re.search(r'\d+', wall_height_response)
-    if match is not None:
-        wall_height = match.group()
-    else:
-        wall_height = "No wall height found in the response"
-        # Or alternatively, raise a more descriptive error
-        # raise ValueError("No wall height found in the response")
-    logging.info(f"Extracted wall height: {wall_height}")
-    return wall_height
-
-
-def extract_information(lead_data):
-    logging.debug(f"Extracting information from lead data: {lead_data}")
-    notes = [note['note'] for note in lead_data.get('notes', [])]
-    combined_data = ' '.join(notes)
-    hitch_type_pattern = r"(bumper pull|gooseneck)"
-    trailer_size_pattern = r"(6x10|6x12|7x14|7x16|7x18|7x20|8x20)"
-    hitch_type = re.search(hitch_type_pattern, combined_data, re.IGNORECASE)
-    trailer_size = re.search(trailer_size_pattern, combined_data)
-    if hitch_type:
-        hitch_type = hitch_type.group(0)
-    if trailer_size:
-        trailer_size = trailer_size.group(0)
-    return hitch_type, trailer_size
-
-def select_template(hitch_type, trailer_size, wall_height, templates):
-    logging.info(f"Selecting template for hitch type: {hitch_type}, trailer size: {trailer_size}, wall height: {wall_height}")  # Add this line
-    # Format the attributes into a string similar to template names
-    formatted_attributes = f"{hitch_type} {trailer_size}x{wall_height}"
-    # Normalize the attributes string to compare with normalized template names
-    normalized_attributes = formatted_attributes.lower().replace(' ', '')
-    for template in templates:
-        # Normalize the template name
-        normalized_template_name = template['name'].lower().replace(' ', '')
-        if normalized_attributes in normalized_template_name:
-            logging.info(f"Selected template: {template}")  # Add this line
-            return template
-    logging.info("No matching template found")  # Add this line
-    return None
-
-
-def analyze_data_with_ai(data):
-    # Use OpenAI's GPT-4 model to analyze the data
-    logging.debug(f"Sending data to AI for analysis: {data}")
-    logging.info(f"Analyzing data with AI: {data}")
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": data},
-        ]
-    )
-    ai_response = response['choices'][0]['message']['content'].strip()
-    logging.info(f"AI response: {ai_response}")
-    return
 
 def run_bot():
-    logging.debug("Starting bot run...")
-    logging.info("Running the bot...")
-
-    specific_statuses = ['stat_GKAEbEJMZeyQlU7IYFOpd6PorjXupqmcNmmSzQBbcVJ',
-                         'stat_6cqDnnaff2GYLV52VABicFqCV6cat7pyJn7wCJALGWz']
-
-    # Fetch all leads with the specific statuses
-    lead_ids = crm_api.get_leads_with_specific_statuses(specific_statuses)
-    logging.info(f"Fetched {len(lead_ids)} leads with the specific statuses.")
-
-    # Keep track of leads that have been processed
-    processed_leads = []
-
     while True:
         try:
-            templates = crm_api.get_sms_templates()
-            logging.info(f"Fetched {len(templates)} templates.")
-            sent_counter = 0
-            human_intervention_counter = 0
-            failed_counter = 0
-
-            # Process all leads, not just the new incoming ones
-            for lead_id in lead_ids:
-                # Skip if lead has already been processed
-                if lead_id in processed_leads:
-                    continue
-
-                try:
-                    logging.info(f"Processing lead {lead_id}...")
-                    incoming_sms = crm_api.get_latest_incoming_sms(lead_id)
-                    outgoing_sms = crm_api.get_latest_outgoing_sms(lead_id)
-
-                    # Proceed only if there's a new incoming SMS that hasn't been responded to yet
-                    if incoming_sms is not None and (outgoing_sms is None or incoming_sms["date_created"] > outgoing_sms["date_created"]):
-                        lead_data = crm_api.get_lead_data(lead_id)
-                        if lead_data is None:
-                            logging.error(f"Failed to get lead data for lead {lead_id}")
-                            continue
-
-                        # Extract the first phone number of the first contact
-                        contacts = lead_data.get('contacts', [])
-                        if contacts and 'phones' in contacts[0] and contacts[0]['phones']:
-                            remote_phone = contacts[0]['phones'][0]['phone']
-                        else:
-                            logging.error(f"No phone number found for lead {lead_id}")
-                            continue
-
-                        lead_data['notes'] = crm_api.get_lead_notes(lead_id)
-
-                        hitch_type, trailer_size = extract_information(lead_data)
-                        if hitch_type is None or trailer_size is None:
-                            logging.info("Insufficient lead data for hitch type or trailer size")
-                            continue
-
-                        wall_height = get_wall_height(incoming_sms['text'])
-                        if wall_height:
-                            template = select_template(hitch_type, trailer_size, wall_height, templates)
-                            if template:
-                                ai_response = analyze_data_with_ai(incoming_sms['text'])
-                                logging.info(f"AI response for incoming SMS: {ai_response}")
-                                if crm_api.send_message(lead_id, '', incoming_sms['id'], template['id']):
-                                    sent_counter += 1
-                                    logging.info(f"Successfully sent SMS template for lead {lead_id}")
-                                else:
-                                    crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')
-                                    human_intervention_counter += 1
-                                    logging.info(f"Updated status to 'Human Intervention' for lead {lead_id} due to SMS sending failure")
-                            else:
-                                crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')
-                                human_intervention_counter += 1
-                                logging.info(f"Updated status to 'Human Intervention' for lead {lead_id} due to no matching template")
-                        else:
-                            crm_api.update_lead_status(lead_id, 'stat_w1TTOIbT1rYA24hSNF3c2pjazxxD0C05TQRgiVUW0A3')
-                            human_intervention_counter += 1
-                            logging.info(f"Updated status to 'Human Intervention' for lead {lead_id} due to no valid wall height found in SMS")
-                except Exception as e:
-                    logging.exception(f"Failed to process lead {lead_id}")
-                    failed_counter += 1
-
-                # Add lead to the list of processed leads
-                processed_leads.append(lead_id)
-
-            logging.info(f"Sent {sent_counter} messages, marked {human_intervention_counter} leads for human intervention, failed to process {failed_counter} leads")
+            process_sms()
+            time.sleep(10)
         except Exception as e:
-            logging.exception("Failed to fetch tasks")
-        time.sleep(5)
+            logger.error(f"❌ Error in run loop: {e}")
+            time.sleep(30)
 
-@app.route('/start', methods=['POST'])
+@app.route("/start", methods=["POST","GET"])
 def start_bot():
-    logging.debug("Received start request")
-    global bot_thread
-    if bot_thread is None or not bot_thread.is_alive():
-        bot_thread = Thread(target=run_bot)
-        bot_thread.start()
-        logging.info("Bot thread started.")
-    return jsonify(success=True)
+    global bot_proc
+    if "bot_proc" not in globals() or not bot_proc.is_alive():
+        bot_proc = Process(target=run_bot)
+        bot_proc.start()
+        return jsonify({"status":"bot started"})
+    return jsonify({"status":"already running"})
 
-@app.route('/stop', methods=['POST'])
+@app.route("/stop", methods=["POST","GET"])
 def stop_bot():
-    logging.debug("Receieved stop request")
-    global bot_thread
-    if bot_thread is not None and bot_thread.is_alive():
-        bot_thread = None
-        logging.info("Bot thread stopped.")
-    return jsonify(success=True)
+    global bot_proc
+    if "bot_proc" in globals() and bot_proc.is_alive():
+        bot_proc.terminate()
+        bot_proc.join(timeout=5)
+        return jsonify({"status":"bot stopped"})
+    return jsonify({"status":"not running"})
 
-@app.route('/logs', methods=['GET'])
-def get_logs():
-    logging.debug("Received logs request")
-    with open('app.log', 'r') as f:
-        return f.read()
+import signal
+def shutdown(signum, frame):
+    logger.info("Shutting down…")
+    if "bot_proc" in globals() and bot_proc.is_alive():
+        bot_proc.terminate()
+        bot_proc.join(timeout=5)
+    sys.exit(0)
+signal.signal(signal.SIGINT, shutdown)
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+    app.run(port=5000, debug=True, use_reloader=False)
